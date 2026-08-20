@@ -100,7 +100,7 @@ export function ParticipationDialog({
         */}
         {(last4 || entry.listenerCpfLastDigits) && (
           <p className="mt-1 text-sm text-muted-foreground">
-            <span data-testid="participation-phone">{phone}</span>
+            <span data-testid="participation-phone">{last4 ? phone : '—'}</span>
             {entry.listenerCpfLastDigits && (
               <span className="ml-2">···{entry.listenerCpfLastDigits}</span>
             )}
