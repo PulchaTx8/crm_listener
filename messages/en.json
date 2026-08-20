@@ -1182,7 +1182,17 @@
     "genderNotRecorded": "Not recorded",
     "gender_M": "Male",
     "gender_F": "Female",
-    "gender_N": "Preferred not to say"
+    "gender_N": "Preferred not to say",
+    "theListener": "The listener",
+    "show": "Show",
+    "where": "Where",
+    "email": "E-mail",
+    "cpf": "CPF",
+    "showTheNumber": "Show the number",
+    "thisListenerHasSinceExercisedTheir": "This listener has since exercised their right to erasure — this is no longer stored.",
+    "couldNotReadThisListener": "This listener could not be read.",
+    "couldNotRevealThisField": "This field could not be revealed.",
+    "viewTheListener": "View the listener"
   },
   "participations": {
     "draw": "Draw",

@@ -1182,7 +1182,17 @@
     "genderNotRecorded": "No registrado",
     "gender_M": "Masculino",
     "gender_F": "Femenino",
-    "gender_N": "Prefirió no decirlo"
+    "gender_N": "Prefirió no decirlo",
+    "theListener": "El oyente",
+    "show": "Mostrar",
+    "where": "Dónde",
+    "email": "Correo electrónico",
+    "cpf": "CPF",
+    "showTheNumber": "Mostrar el número",
+    "thisListenerHasSinceExercisedTheir": "Este oyente ejerció después su derecho de supresión — esto ya no está almacenado.",
+    "couldNotReadThisListener": "No fue posible leer este oyente.",
+    "couldNotRevealThisField": "No fue posible revelar este campo.",
+    "viewTheListener": "Ver el oyente"
   },
   "participations": {
     "draw": "Sorteo",
