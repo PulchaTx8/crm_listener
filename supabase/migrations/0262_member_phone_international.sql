@@ -2,11 +2,18 @@
 
 -- Block 30d, D5. The listeners already stored in the local form.
 --
--- EIGHT ROWS IN THE HOSTED DATABASE when this was written, every one of them
--- first_contact_origin = 'WHATSAPP' -- the one path that converted an inbound
--- number to the local form before resolving the listener. The other 1 005 were
--- already international, which is why this block chose that form (D2) and why
--- this repair is eight rows rather than a thousand.
+-- NINE ROWS IN THE HOSTED DATABASE when the guard below was added,
+-- 2026-08-21 -- one more than the eight this migration first measured, a
+-- later WhatsApp registration having landed in between. Every one of them
+-- carries first_contact_origin = 'WHATSAPP', the one path that converted an
+-- inbound number to the local form before resolving the listener; the other
+-- 1 005 were already international, which is why this block chose that form
+-- (D2) and why this repair is nine rows rather than a thousand. SEVEN OF THE
+-- NINE REPAIR CLEANLY. The other two each belong to a listener who
+-- registered twice -- once by WhatsApp, once through the widget, same
+-- number, same day -- so the WhatsApp row's repaired form collides with the
+-- listener's own already-international widget row; the guard below leaves
+-- those two exactly as they are rather than merge them (spec Sec 2).
 --
 -- WRITES `phone`, NOT `phone_normalized`: the latter is GENERATED from the
 -- former through normalize_phone (0031) and follows on its own.
@@ -70,17 +77,37 @@
 -- guard is evaluated).
 --
 -- TWO ROWS BOTH STILL IN THE LOCAL FORM CANNOT COLLIDE WITH EACH OTHER THIS
--- WAY. They repair onto the same value only if their raw digit strings were
--- already identical -- phone_normalized of an unpunctuated local number IS
--- that string, so two members already holding it would already violate
--- members_phone_unique today, before this migration ever runs. And this
--- migration cannot manufacture that equality out of two DIFFERENT raw values:
--- within one country's national branch, international_phone's output is a
--- fixed prefix ('+' || calling_code) concatenated onto the untouched digit
--- string, and concatenating a fixed prefix onto different inputs cannot
--- produce the same output. The only real collision is the one measured in
--- production: a local row reaching the value an international row already
--- has.
+-- WAY, PROVIDED BOTH ARE ACTIVE. They repair onto the same value only if
+-- their raw digit strings were already identical -- phone_normalized of an
+-- unpunctuated local number IS that string, so two ACTIVE members already
+-- holding it would already violate members_phone_unique today, before this
+-- migration ever runs. "Active" is load-bearing, not decorative: the index
+-- is partial on `deleted_at is null` (0031), so a soft-deleted member CAN
+-- already share a phone_normalized with an active one without tripping it --
+-- which is exactly why the guard's own `other.deleted_at is null` mirrors
+-- the index's predicate rather than a bare equality check. Between two
+-- ACTIVE rows the conclusion still holds: this migration cannot manufacture
+-- that equality out of two DIFFERENT raw values within one country --
+-- international_phone's national branch is a fixed prefix ('+' ||
+-- calling_code) concatenated onto the untouched digit string, and
+-- concatenating a fixed prefix onto different inputs cannot produce the same
+-- output.
+--
+-- ACROSS COUNTRIES IT HOLDS FOR A NARROWER REASON, worth stating beside the
+-- invitation to add one (country_phone_rule's own comment, 0260): the five
+-- calling codes on file today -- 55, 351, 34, 1, 1 -- are pairwise
+-- PREFIX-FREE, so '+'||code_A and '+'||code_B are guaranteed to diverge
+-- somewhere inside the calling code itself, before either national number
+-- even begins, whatever digits follow. A future country whose calling code
+-- PREFIXES another's already on file (a hypothetical '3' beside '34' and
+-- '351') would defeat this specific argument -- not the guard itself, which
+-- reads the live table rather than relying on this proof and would still
+-- catch whatever collision resulted, but the claim that no still-local pair
+-- can ever reach one.
+--
+-- The only real collision measured in production is the one this guard was
+-- written for: a local row reaching the value an international row already
+-- holds.
 with station as (
   select distinct on (l.member_id) l.member_id, c.country
     from public.member_company_links l

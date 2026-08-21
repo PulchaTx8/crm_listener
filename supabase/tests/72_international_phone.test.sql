@@ -1,5 +1,5 @@
 begin;
-select plan(27);
+select plan(30);
 
 -- The ordinary Brazilian mobile, typed as an operator types it.
 select is(public.international_phone('(11) 99999-8888', 'BR'), '+5511999998888',
@@ -246,10 +246,92 @@ $$, 'the repair does not raise when a local-form row would collide with an alrea
 
 -- LEFT EXACTLY AS IT WAS, not merged and not corrupted: the guard's job is to
 -- decline this row, not to produce some other answer for it.
+--
+-- WHAT THIS DOES NOT PROVE, said plainly: it does not discriminate the
+-- guard's absence, and it was checked to confirm that rather than assumed.
+-- Postgres rolls a failed statement back to lives_ok's own savepoint, so this
+-- row reads back unchanged whether the guard declined it on purpose or the
+-- whole UPDATE aborted on the 23505 the lives_ok assertion above would then
+-- be failing on -- removing the guard was observed to fail ONLY that
+-- assertion, not this one. The proof that the guard exists and works is
+-- entirely the lives_ok above; this assertion only pins what the row looks
+-- like once it doesn't raise.
 select is(
   (select phone from public.members where id = '00000000-0000-0000-0000-000000000728'),
   '11977000111',
   'the colliding local-form row is left exactly as it was');
+
+-- THE HARDER CASE: THE SURVIVING ROW HAS NO LEADING PLUS. Production's
+-- widget stores the plus (composePhone has posted '+' || digits since
+-- 2026-08-10), so the fixture above is the shape production actually has --
+-- but a bare-digit international row is a different shape for the guard to
+-- get right, because it is NOT excluded from the base "needs repair"
+-- predicate the way a with-plus row is: international_phone still wants to
+-- add its missing plus, so this row is ALSO a candidate the same UPDATE
+-- statement is about to touch, not an untouched bystander. The two rows
+-- below are matched by ONE statement, both distinct from their own target,
+-- and both compute the identical target -- '+5511966000222' -- since a
+-- leading plus is the only difference international_phone ever adds to
+-- digits that already carry the country code. Unguarded, Postgres detects
+-- the two about-to-be-written phone_normalized values coinciding and raises
+-- 23505 the same as the with-plus case. The guard still catches it: the
+-- no-plus row's OWN phone_normalized does not move when its plus is added
+-- (phone_normalized strips punctuation either way), so the PRE-statement
+-- snapshot value the guard reads is already the same value the local row is
+-- about to converge on, even though that row is itself mid-repair in the
+-- same statement.
+insert into public.companies (id, organization_id, name, country) values
+  ('00000000-0000-0000-0000-000000000729', '00000000-0000-0000-0000-000000000721', 'Station 72 Collision No Plus', 'BR');
+insert into public.members (id, organization_id, phone) values
+  ('00000000-0000-0000-0000-000000000730', '00000000-0000-0000-0000-000000000721', '5511966000222'),
+  ('00000000-0000-0000-0000-000000000731', '00000000-0000-0000-0000-000000000721', '11966000222');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-000000000730', '00000000-0000-0000-0000-000000000729', '00000000-0000-0000-0000-000000000721'),
+  ('00000000-0000-0000-0000-000000000731', '00000000-0000-0000-0000-000000000729', '00000000-0000-0000-0000-000000000721');
+
+select lives_ok($$
+  with station as (
+    select distinct on (l.member_id) l.member_id, c.country
+      from public.member_company_links l
+      join public.companies c on c.id = l.company_id
+     order by l.member_id, l.linked_at, c.id
+  )
+  update public.members m
+     set phone = public.international_phone(m.phone, station.country)
+    from station
+   where station.member_id = m.id
+     and m.phone is not null
+     and public.international_phone(m.phone, station.country) is distinct from m.phone
+     and not exists (
+       select 1
+         from public.members other
+        where other.organization_id = m.organization_id
+          and other.id <> m.id
+          and other.deleted_at is null
+          and other.phone_normalized = public.normalize_phone(public.international_phone(m.phone, station.country))
+     )
+$$, 'the repair does not raise when two rows in one statement would converge on the same value');
+
+-- LEFT EXACTLY AS IT WAS, same as the with-plus fixture, and for the same
+-- reason it does not by itself discriminate the guard's absence (see the
+-- note above the with-plus assertion).
+select is(
+  (select phone from public.members where id = '00000000-0000-0000-0000-000000000731'),
+  '11966000222',
+  'the local-form row is left exactly as it was');
+
+-- AND THE ROW THAT NEEDED ONLY A PLUS STILL GETS ONE. The guard's job is to
+-- decline the row that WOULD collide, not the row it collides with: this one
+-- was never in the other's way (its own current phone_normalized is
+-- '11966000222', nothing the other row's target could ever equal), so it is
+-- repaired normally. Unlike the assertion above, THIS ONE DOES discriminate
+-- the guard's absence: without the guard the whole statement aborts on the
+-- 23505, and an aborted statement leaves this row un-repaired too -- checked
+-- by observation, not assumed, the same way the lives_ok failure above was.
+select is(
+  (select phone from public.members where id = '00000000-0000-0000-0000-000000000730'),
+  '+5511966000222',
+  'the bare-digit international row still gets its plus -- only the row that would collide is held back');
 
 -- 0263. THE DOORS. Three assertions on the one the owner reported through --
 -- resolve_or_create_member, the manual entry door behind the Participations
@@ -265,7 +347,8 @@ select is(
 -- the bot and the spreadsheet spell them. Before 0263 the first call stored
 -- 11988887777 and the second found nothing to resolve, so the Organization
 -- ended the file holding TWO listeners for one person -- which is the defect
--- item 1b exists to close, and what assertion 18 counts.
+-- item 1b exists to close, and what the Organization-count assertion below
+-- proves.
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-0000000030e1', 'Org 30d');
 -- country 'BR' EXPLICITLY, not left to 0261's backfill: 0261 has already run
@@ -309,7 +392,7 @@ select public.resolve_or_create_member(
 
 reset role;
 
--- 17: phone_normalized, not phone, because that is the column
+-- PHONE_NORMALIZED, NOT PHONE, because that is the column
 -- members_phone_unique (0031) dedupes on and therefore the one that decides
 -- whether these two calls describe one person. It drops the plus the door
 -- stores, which is why the expected value carries no plus while
@@ -321,7 +404,7 @@ select is(
   '5511988887777',
   'the manual entry door stores the international form');
 
--- 18: counted over the ORGANIZATION rather than over the phone. A count
+-- COUNTED OVER THE ORGANIZATION RATHER THAN OVER THE PHONE. A count
 -- filtered to phone_normalized = '5511988887777' would answer 1 whether or not
 -- the second call created a second listener, because the second row would
 -- carry the OTHER spelling and fall outside the filter -- an assertion that
@@ -333,7 +416,7 @@ select is(
   1::bigint,
   'the local and international spellings resolve to ONE listener');
 
--- 19: and it is the SAME listener, not merely the same number of them. The id
+-- AND IT IS THE SAME LISTENER, not merely the same number of them. The id
 -- is compared rather than the outcome string, because an outcome of 'resolved'
 -- naming a different row would be a worse failure than 'created' and the two
 -- deserve to be told apart by what the assertion prints.
@@ -384,7 +467,7 @@ values
 select public.widget_request_code(
   'pw_phonedoors30d012345678', '11 97777-6666', repeat('e', 64), '246810');
 
--- 20: the row carries the canonical number, not the keystrokes. Before 0263 it
+-- THE ROW CARRIES THE CANONICAL NUMBER, not the keystrokes. Before 0263 it
 -- held '11 97777-6666'.
 select is(
   (select phone from public.widget_verifications
@@ -393,7 +476,7 @@ select is(
   '+5511977776666',
   'the widget stores the canonical number on the verification row');
 
--- 21: AND THE SAME VALUE IS WHAT WAS SENT TO. outbox_messages.to_phone is what
+-- AND THE SAME VALUE IS WHAT WAS SENT TO. outbox_messages.to_phone is what
 -- sendTemplate hands Meta, and '11 97777-6666' is not a number Meta can deliver
 -- to -- so a caller posting the local form got a row, an outbox message, an
 -- 'ok', and no code.
@@ -413,7 +496,7 @@ select is(
   '+5511977776666',
   'and the code is sent to the number WhatsApp can actually reach');
 
--- 22: the ordinary case, which is the one canonicalising the write could have
+-- THE ORDINARY CASE, which is the one canonicalising the write could have
 -- broken. The browser posts the same string on both calls, both calls compute
 -- the same expression from the same Station's country, so the row still
 -- matches.
@@ -424,7 +507,7 @@ select is(
   'true',
   'and the second call, spelled the same way, still finds that row');
 
--- 23: and the case that never worked. Asking with the local form and entering
+-- AND THE CASE THAT NEVER WORKED. Asking with the local form and entering
 -- with the international one answered no_pending_code while both sides were
 -- compared raw; one canonical value on both sides is what makes these the same
 -- number.
@@ -438,7 +521,7 @@ select is(
   'true',
   'and a visitor who asks in one spelling and enters in the other matches too');
 
--- 24: A STATION WITH NO COUNTRY, which nothing in supabase/tests/ exercises
+-- A STATION WITH NO COUNTRY, which nothing in supabase/tests/ exercises
 -- any more: file 40's fixtures gained country 'BR' in this same block, and
 -- every Station above carries one. The behaviour is deliberate and is design
 -- D5's, so it is pinned rather than left to be rediscovered -- international_phone

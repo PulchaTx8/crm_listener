@@ -36,6 +36,16 @@ $$;
 comment on function public.country_phone_rule(text) is
   'The calling code and the national length range for one ISO 3166-1 alpha-2 country, or no row. Holds only countries whose national numbering has been verified -- international_phone returns the digits unchanged for every other, which is why an absent row is a safe answer rather than a gap. US and CA share calling code 1 on purpose: this function composes numbers and never decomposes them, so the many-to-one is not an ambiguity here. A NEW ROW MUST KEEP national_max UNDER 12, or it silently breaks an argument made elsewhere: withdraw_marketing_by_phone (0263) searches international_phone''s answer and then whatsapp_local_phone''s, and reasons that one of the two is always the number Meta delivered -- which holds only because whatsapp_local_phone strips a leading 55 at digit-lengths 12 and 13 only, so a national length of 12 or more would be stripped by it and neither search would be the delivered form. A country whose national numbering really is that long needs that door revisited in the same commit.';
 
+-- A NEW ROW MUST ALSO KEEP ITS CALLING CODE PREFIX-FREE against every one
+-- already here -- 55, 351, 34, 1 -- or it silently breaks a second argument
+-- made elsewhere: 0262's own comment, on why two members both still in the
+-- local form can never repair onto the same value, depends on '+'||
+-- calling_code always diverging between two different countries before
+-- their national digits even begin. A calling code that PREFIXES one on
+-- file (a hypothetical '3' beside '34' and '351') would defeat that specific
+-- argument, though not 0262's guard itself, which checks the live table
+-- rather than relying on the proof.
+
 -- The digits as the Cloud API wants them, or the digits unchanged when no rule
 -- can decide.
 --
