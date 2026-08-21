@@ -114,26 +114,33 @@ Create `supabase/tests/72_international_phone.test.sql`:
 
 ```sql
 begin;
-select plan(9);
+select plan(10);
 
 -- The ordinary Brazilian mobile, typed as an operator types it.
-select is(public.international_phone('(11) 99999-8888', 'BR'), '5511999998888',
+select is(public.international_phone('(11) 99999-8888', 'BR'), '+5511999998888',
   'a national number gains its country code');
 
 -- Already international: unchanged, not double-prefixed.
-select is(public.international_phone('+55 11 99999-8888', 'BR'), '5511999998888',
+select is(public.international_phone('+55 11 99999-8888', 'BR'), '+5511999998888',
   'an international number is left alone');
+
+-- IDEMPOTENT, asserted rather than assumed: 0262 re-runs this over stored
+-- values, and a function that grew a second '+55' on the second pass would
+-- corrupt every row it had already repaired.
+select is(public.international_phone(public.international_phone('11999998888', 'BR'), 'BR'),
+  '+5511999998888',
+  'running it over its own output changes nothing');
 
 -- THE COLLISION THIS FUNCTION EXISTS FOR. 55 is Santa Maria's area code as well
 -- as Brazil's country code, so a prefix test would call this international and
 -- leave a ten-digit number that can never be dialled.
-select is(public.international_phone('(55) 9999-8888', 'BR'), '555599998888',
+select is(public.international_phone('(55) 9999-8888', 'BR'), '+555599998888',
   'an area code that equals the country code is still a national number');
 
 select is(public.international_phone('99999-8888', 'BR'), '999998888',
-  'a length no rule explains is returned unchanged');
+  'a length no rule explains is returned unchanged, and WITHOUT a plus');
 
-select is(public.international_phone('912 345 678', 'PT'), '351912345678',
+select is(public.international_phone('912 345 678', 'PT'), '+351912345678',
   'Portugal is a second country with a verified rule');
 
 select is(public.international_phone('11999998888', 'ZZ'), '11999998888',
@@ -230,19 +237,34 @@ begin
   if length(v_digits) between length(v_rule.calling_code) + v_rule.national_min
                           and length(v_rule.calling_code) + v_rule.national_max
      and left(v_digits, length(v_rule.calling_code)) = v_rule.calling_code then
-    return v_digits;
+    return '+' || v_digits;
   end if;
 
   if length(v_digits) between v_rule.national_min and v_rule.national_max then
-    return v_rule.calling_code || v_digits;
+    return '+' || v_rule.calling_code || v_digits;
   end if;
 
   return v_digits;
 end;
 $$;
+```
+
+**The leading `+` is the house form, measured rather than chosen.** Every
+`members.phone` in the hosted database reads `+5541900000006` — `+`, then
+digits, no other punctuation. Returning bare digits would leave the eight rows
+0262 repairs looking unlike the thousand around them. `normalize_phone` strips
+the `+` for `phone_normalized`, so identity is unaffected either way, and
+`whatsappHref` (`station-identity.ts`) already reduces a display number to
+digits before building a `wa.me` address.
+
+**A number no rule can place keeps its bare digits and gets no `+`** — a plus
+in front of a number whose country nobody established would be a claim this
+function has not earned.
+
+```sql
 
 comment on function public.international_phone(text, text) is
-  'One telephone number in the form the WhatsApp Cloud API can reach and members.phone_normalized can compare: digits only, country code included. Goes through normalize_phone (0031) rather than stripping punctuation itself, so it cannot drift from the generated column whose value decides who is who. Returns the digits UNCHANGED when country_phone_rule has no row for the country and when the length matches neither range -- refusing would stop a listener registering because an administrator left a select empty, and guessing would split one person into two rows. Block 30d, item 1b: the doors that write a phone all call this, so the widget, the console, the spreadsheet and the bot cannot come to disagree about what a number is.';
+  'One telephone number in the form this database already stores: a leading plus, then the country code, then the national number, and no other punctuation -- the shape every members.phone row in production already carries. Goes through normalize_phone (0031) for the comparison rather than stripping punctuation itself, so it cannot drift from members.phone_normalized, the generated column whose value decides who is who; that column drops the plus, so identity is unaffected by it. IDEMPOTENT: running this over its own output returns the same string, which is what makes the 0262 repair safe to re-run. Returns the digits UNCHANGED AND UNPREFIXED when country_phone_rule has no row for the country and when the length matches neither range -- refusing would stop a listener registering because an administrator left a select empty, guessing would split one person into two rows, and a plus in front of a number whose country nobody established would be a claim this function has not earned. Block 30d, item 1b: the doors that write a phone all call this, so the widget, the console, the spreadsheet and the bot cannot come to disagree about what a number is.';
 
 revoke execute on function public.country_phone_rule(text) from public;
 revoke execute on function public.international_phone(text, text) from public;
@@ -253,7 +275,7 @@ grant execute on function public.international_phone(text, text) to authenticate
 - [ ] **Step 4: Run the suite and watch it pass**
 
 Run: `npm run db:reset` then `npm run db:test`
-Expected: file 72 PASSES, 9 of 9.
+Expected: file 72 PASSES, 10 of 10.
 
 - [ ] **Step 5: Prove the collision case actually discriminates**
 
@@ -283,7 +305,7 @@ git commit -m "feat(30d): one shape for a phone number, decided by length becaus
 
 - [ ] **Step 1: Extend the pgTAP file with the two repairs**
 
-Append to `supabase/tests/72_international_phone.test.sql` and raise `plan(9)` to `plan(12)`:
+Append to `supabase/tests/72_international_phone.test.sql` and raise `plan(10)` to `plan(13)`:
 
 ```sql
 -- 0261. Every Station that predates the column has a country, so the doors can
@@ -294,13 +316,18 @@ select is((select count(*) from public.companies where country is null), 0::bigi
 
 -- 0262. The repair is expressed as a property, not as a row count: after it,
 -- no member carries a phone that international_phone would still change.
+--
+-- COMPARED AGAINST `phone`, NOT `phone_normalized`. The function answers the
+-- display form (with its leading plus) and phone_normalized is digits only, so
+-- comparing against the generated column would report every correctly repaired
+-- row as still needing repair -- a predicate that never settles.
 select is(
   (select count(*)
      from public.members m
      join public.member_company_links l on l.member_id = m.id
      join public.companies c on c.id = l.company_id
     where m.phone is not null
-      and public.international_phone(m.phone, c.country) is distinct from m.phone_normalized),
+      and public.international_phone(m.phone, c.country) is distinct from m.phone),
   0::bigint,
   'no member is left in a form the sanitation would change');
 
@@ -313,7 +340,7 @@ select lives_ok($$
     join public.companies c on c.id = l.company_id
    where l.member_id = m.id
      and m.phone is not null
-     and public.international_phone(m.phone, c.country) is distinct from m.phone_normalized
+     and public.international_phone(m.phone, c.country) is distinct from m.phone
 $$, 'the repair is re-runnable and finds nothing to do');
 ```
 
@@ -372,13 +399,13 @@ update public.members m
   join public.companies c on c.id = l.company_id
  where l.member_id = m.id
    and m.phone is not null
-   and public.international_phone(m.phone, c.country) is distinct from m.phone_normalized;
+   and public.international_phone(m.phone, c.country) is distinct from m.phone;
 ```
 
 - [ ] **Step 5: Run the suite and watch it pass**
 
 Run: `npm run db:reset` then `npm run db:test`
-Expected: file 72 PASSES, 12 of 12.
+Expected: file 72 PASSES, 13 of 13.
 
 - [ ] **Step 6: Confirm the unique index did not reject anything**
 
@@ -529,7 +556,7 @@ git commit -m "fix(30d): every door that writes a phone writes the same shape"
 - Create: `supabase/migrations/0264_question_prompt_step.sql`
 - Modify: `src/lib/widget/promotion-mapping.ts`
 - Modify: `src/app/(widget)/w/[publicKey]/enter-promotion.tsx:547-590`
-- Create: `tests/unit/widget-step-prompt.test.ts`
+- Modify: `tests/unit/widget-promotion-mapping.test.ts`
 - Modify: `tests/e2e/widget.spec.ts`
 
 **There is no `widget-promotions.spec.ts`.** The widget journey is
@@ -543,7 +570,7 @@ Extend it; do not build a second seeding.
 
 - [ ] **Step 1: Write the failing unit test**
 
-Create `tests/unit/widget-step-prompt.test.ts`:
+Append to `tests/unit/widget-promotion-mapping.test.ts`, which already covers this module:
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -576,7 +603,7 @@ describe('readSteps', () => {
 
 - [ ] **Step 2: Run and watch it fail**
 
-Run: `npx vitest run tests/unit/widget-step-prompt.test.ts`
+Run: `npx vitest run tests/unit/widget-promotion-mapping.test.ts`
 Expected: FAIL — the returned object has no `prompt`.
 
 - [ ] **Step 3: Widen the type and the reader**
@@ -615,7 +642,7 @@ and in `readSteps`, in the question branch:
 
 - [ ] **Step 4: Run the unit test**
 
-Run: `npx vitest run tests/unit/widget-step-prompt.test.ts`
+Run: `npx vitest run tests/unit/widget-promotion-mapping.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Write 0264**
@@ -666,7 +693,7 @@ Expected: green.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add supabase/migrations/0264_question_prompt_step.sql src/lib/widget/promotion-mapping.ts src/app/\(widget\)/w/\[publicKey\]/enter-promotion.tsx tests/unit/widget-step-prompt.test.ts tests/e2e/widget-promotions.spec.ts
+git add supabase/migrations/0264_question_prompt_step.sql src/lib/widget/promotion-mapping.ts src/app/\(widget\)/w/\[publicKey\]/enter-promotion.tsx tests/unit/widget-promotion-mapping.test.ts tests/e2e/widget-promotions.spec.ts
 git commit -m "fix(30d): the widget draws the question, not just its answers"
 ```
 
@@ -683,14 +710,14 @@ git commit -m "fix(30d): the widget draws the question, not just its answers"
 - Create: `src/app/(app)/messages/promo/listener-language.tsx`
 - Modify: `src/app/(app)/messages/promo/page.tsx`
 - Modify: `messages/en.json`, `messages/pt.json`, `messages/es.json`
-- Modify: `supabase/tests/72_international_phone.test.sql`
+- Create: `supabase/tests/74_listener_locale.test.sql`
 
 **Interfaces:**
 - Produces: `companies.listener_locale text`; `public.set_listener_locale(p_company_id uuid, p_locale text) returns void`; `widget_frame_context` answers a `listenerLocale` key.
 
 - [ ] **Step 1: Write the failing pgTAP cases**
 
-Append to file 72, raising the plan by 4:
+Create `supabase/tests/74_listener_locale.test.sql` with `plan(4)`. **Its own file, not an appendix to 72** — that file is the phone rule, and a language assertion inside it is filed where nobody looking for it will read. Seed the organization, a company, and a widget installation the way `73_fast_entry.test.sql` does:
 
 ```sql
 select has_column('public', 'companies', 'listener_locale', 'the Station carries a listener language');
@@ -920,7 +947,7 @@ Expected: green.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add supabase/migrations/0265_listener_locale.sql src/services/templates.ts "src/app/(app)/messages/promo" messages supabase/tests/72_international_phone.test.sql
+git add supabase/migrations/0265_listener_locale.sql src/services/templates.ts src/schemas/templates.ts "src/app/(app)/messages" messages supabase/tests/74_listener_locale.test.sql
 git commit -m "feat(30d): the Station decides what language its listeners read"
 ```
 
@@ -1399,7 +1426,7 @@ git commit -m "feat(30d): the hashtag enters a promotion that asks nothing, and 
 - Create: `supabase/migrations/0268_widget_fast_entry.sql`
 - Modify: `src/lib/widget/promotion-mapping.ts`
 - Modify: `src/app/(widget)/w/[publicKey]/enter-promotion.tsx`
-- Modify: `tests/unit/widget-step-prompt.test.ts`
+- Modify: `tests/unit/widget-promotion-mapping.test.ts`
 - Modify: `supabase/tests/73_fast_entry.test.sql`
 - Modify: `tests/e2e/widget-promotions.spec.ts`
 
@@ -1408,7 +1435,7 @@ git commit -m "feat(30d): the hashtag enters a promotion that asks nothing, and 
 
 - [ ] **Step 1: Write the failing unit test**
 
-Append to `tests/unit/widget-step-prompt.test.ts`:
+Append to `tests/unit/widget-promotion-mapping.test.ts`:
 
 ```ts
 import { needsNoWalk } from '@/lib/widget/promotion-mapping';
@@ -1435,7 +1462,7 @@ describe('needsNoWalk', () => {
 
 - [ ] **Step 2: Run and watch it fail**
 
-Run: `npx vitest run tests/unit/widget-step-prompt.test.ts`
+Run: `npx vitest run tests/unit/widget-promotion-mapping.test.ts`
 Expected: FAIL — `needsNoWalk` is not exported.
 
 - [ ] **Step 3: Write it**
@@ -1461,7 +1488,7 @@ export function needsNoWalk(steps: WidgetStep[]): boolean {
 
 - [ ] **Step 4: Run the unit test**
 
-Run: `npx vitest run tests/unit/widget-step-prompt.test.ts`
+Run: `npx vitest run tests/unit/widget-promotion-mapping.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Write 0268**
