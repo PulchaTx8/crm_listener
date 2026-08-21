@@ -1,5 +1,5 @@
 begin;
-select plan(25);
+select plan(27);
 
 -- The ordinary Brazilian mobile, typed as an operator types it.
 select is(public.international_phone('(11) 99999-8888', 'BR'), '+5511999998888',
@@ -202,6 +202,54 @@ select is((select row_count from t72_second_run), 0,
 select is(
   (select phone from public.members where id = '00000000-0000-0000-0000-000000000723'),
   '+5511999998888', 'the second application leaves the already-repaired phone unchanged');
+
+-- THE COLLISION THE GUARD EXISTS FOR, reproduced the way production has it,
+-- 2026-08-21: one member already in the international form (the widget's
+-- spelling) and a second member, same Organization, same underlying number,
+-- still in the local form (the WhatsApp spelling) -- two rows for one
+-- person, which this migration does not merge (spec Sec 2). Without the
+-- guard, the statement below raises 23505 on members_phone_unique the moment
+-- it tries to rewrite the local-form row onto a value the international row
+-- already holds. Inserted only now, after both applications above, so
+-- neither of them touches these two rows by accident.
+insert into public.companies (id, organization_id, name, country) values
+  ('00000000-0000-0000-0000-000000000726', '00000000-0000-0000-0000-000000000721', 'Station 72 Collision', 'BR');
+insert into public.members (id, organization_id, phone) values
+  ('00000000-0000-0000-0000-000000000727', '00000000-0000-0000-0000-000000000721', '+5511977000111'),
+  ('00000000-0000-0000-0000-000000000728', '00000000-0000-0000-0000-000000000721', '11977000111');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-000000000727', '00000000-0000-0000-0000-000000000726', '00000000-0000-0000-0000-000000000721'),
+  ('00000000-0000-0000-0000-000000000728', '00000000-0000-0000-0000-000000000726', '00000000-0000-0000-0000-000000000721');
+
+select lives_ok($$
+  with station as (
+    select distinct on (l.member_id) l.member_id, c.country
+      from public.member_company_links l
+      join public.companies c on c.id = l.company_id
+     order by l.member_id, l.linked_at, c.id
+  )
+  update public.members m
+     set phone = public.international_phone(m.phone, station.country)
+    from station
+   where station.member_id = m.id
+     and m.phone is not null
+     and public.international_phone(m.phone, station.country) is distinct from m.phone
+     and not exists (
+       select 1
+         from public.members other
+        where other.organization_id = m.organization_id
+          and other.id <> m.id
+          and other.deleted_at is null
+          and other.phone_normalized = public.normalize_phone(public.international_phone(m.phone, station.country))
+     )
+$$, 'the repair does not raise when a local-form row would collide with an already-international one');
+
+-- LEFT EXACTLY AS IT WAS, not merged and not corrupted: the guard's job is to
+-- decline this row, not to produce some other answer for it.
+select is(
+  (select phone from public.members where id = '00000000-0000-0000-0000-000000000728'),
+  '11977000111',
+  'the colliding local-form row is left exactly as it was');
 
 -- 0263. THE DOORS. Three assertions on the one the owner reported through --
 -- resolve_or_create_member, the manual entry door behind the Participations
