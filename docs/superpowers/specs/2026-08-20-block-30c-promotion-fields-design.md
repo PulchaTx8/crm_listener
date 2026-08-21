@@ -265,7 +265,11 @@ stayed current either.
   the same signature, in present-tense comments
 - `tests/isolation/harness.ts`, `participations.test.ts`, `promotions.test.ts`
 - `tests/unit/promotions-schema.test.ts` — the final review's §7 unit tests
+- `tests/e2e/images.spec.ts` — a fixture the rules gate broke, found by reading
+  rather than by a failing run, because Task 2's own suites never reach it
 - `docs/DATABASE.md`, `docs/PERMISSIONS.md`
+- this document and `docs/superpowers/plans/2026-08-20-block-30c-promotion-fields.md`,
+  which the diff names like any other file
 
 **Not changed, despite an earlier version of this list saying otherwise:**
 `src/app/(app)/promotions/record.ts`.
