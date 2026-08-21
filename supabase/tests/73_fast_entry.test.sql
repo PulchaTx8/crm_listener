@@ -483,8 +483,8 @@ select is(
 -- The one at Station B uses TWO placeholders for a purpose whose sentence has
 -- ONE variable. That is a thing an operator can type on the Templates screen,
 -- and enqueue_whatsapp_outbound refuses it with 22023 (0111) -- which on the
--- fast path would roll back an entry already written. Assertion 29 pins that
--- the envelope declines to choose it.
+-- fast path would roll back an entry already written. The variable-count case
+-- at the end of the envelope block below pins that it is not chosen.
 -- ---------------------------------------------------------------------------
 insert into public.message_templates
   (organization_id, company_id, purpose, name, language, body, channel, internal_name)
@@ -619,7 +619,8 @@ select is(
 --        already written disappears -- the reply destroying the entry it exists
 --        to describe, which is exactly what D9 promises cannot happen and
 --        exactly what the variable-count pre-validation prevents on the other
---        side. Assertion 33 is the one that says the entry survived.
+--        side. The participation count immediately below is the case that says
+--        the entry survived; the outcome above it only says the door answered.
 --
 --        A PARTICIPATION_TOO_SOON TEMPLATE IS REGISTERED AT THIS STATION on
 --        purpose: the degraded sentence carries no time, so it carries no
