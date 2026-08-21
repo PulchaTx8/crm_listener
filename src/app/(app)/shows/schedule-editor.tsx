@@ -5,6 +5,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { isOvernight, type Band } from '@/lib/shows/bands';
+import { WEEKDAY_LABEL_KEYS } from '@/lib/shows/weekday-labels';
 
 /**
  * Block 18. The weekly schedule, edited as the operator describes it: a list of
@@ -23,16 +24,6 @@ import { isOvernight, type Band } from '@/lib/shows/bands';
 
 /** ISO, so the values match `extract(isodow from …)` with nothing to convert. */
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
-
-const DAY_LABEL_KEYS: Record<number, string> = {
-  1: 'monday',
-  2: 'tuesday',
-  3: 'wednesday',
-  4: 'thursday',
-  5: 'friday',
-  6: 'saturday',
-  7: 'sunday',
-};
 
 export function ScheduleEditor({
   bands,
@@ -79,7 +70,7 @@ export function ScheduleEditor({
                   className="h-4 w-4 rounded border-input"
                   data-testid={`show-band-${index}-day-${day}`}
                 />
-                <span>{t(DAY_LABEL_KEYS[day] ?? 'monday')}</span>
+                <span>{t(WEEKDAY_LABEL_KEYS[day] ?? 'monday')}</span>
               </label>
             ))}
           </div>

@@ -12,8 +12,15 @@ import { endShow, getShowById, saveShow, type ShowSummary } from '@/services/sho
  *
  * NOT ONE `revalidatePath` IN THIS FILE, the same rule songs, inventory and
  * members all carry: every write here is invoked from the record dialog, and a
- * fresh render of the route would re-run the list's keyset query, rebuild the
- * grid from page one and throw away whatever the operator had open.
+ * fresh render of the route would throw away whatever the operator had open,
+ * rebuilding the list under them.
+ *
+ * The list patches the saved row in place instead (`applyRowPatch`). Block 30e's
+ * WEEK view cannot: a saved schedule can move a block to another hour or another
+ * day, which is a re-layout rather than a row edit, so `ScheduleBoard` asks for a
+ * `router.refresh()` of its own after a save. That choice belongs to the view
+ * that needs it rather than to this file, which is why it is still true here that
+ * nothing revalidates.
  */
 
 export interface ShowFormState {

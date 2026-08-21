@@ -113,6 +113,36 @@ export function ShowsFilters({ state }: { state: ShowListState }) {
         <span>{t('showEndedProgrammes')}</span>
       </label>
 
+      {/* Block 30e, D6. Two views of one list, addressed rather than toggled:
+          links, so the view is part of the URL and survives being shared, and so
+          the server renders whichever one the address names. */}
+      <div className="mb-1 flex items-center gap-1 rounded-md border p-1" data-testid="shows-view">
+        <Link
+          href={showHref({ ...state, view: 'list', week: undefined }) as Route}
+          aria-current={state.view === 'list' ? 'page' : undefined}
+          data-testid="shows-view-list"
+          className={
+            state.view === 'list'
+              ? 'rounded bg-primary px-3 py-1 text-sm text-primary-foreground'
+              : 'rounded px-3 py-1 text-sm text-muted-foreground hover:bg-accent'
+          }
+        >
+          {t('listView')}
+        </Link>
+        <Link
+          href={showHref({ ...state, view: 'schedule' }) as Route}
+          aria-current={state.view === 'schedule' ? 'page' : undefined}
+          data-testid="shows-view-schedule"
+          className={
+            state.view === 'schedule'
+              ? 'rounded bg-primary px-3 py-1 text-sm text-primary-foreground'
+              : 'rounded px-3 py-1 text-sm text-muted-foreground hover:bg-accent'
+          }
+        >
+          {t('weekView')}
+        </Link>
+      </div>
+
       {hasActiveShowFilters(state) && (
         <Link
           href={
@@ -122,6 +152,10 @@ export function ShowsFilters({ state }: { state: ShowListState }) {
               includeEnded: false,
               sort: state.sort,
               direction: state.direction,
+              // The view and the week are not filters, so clearing the filters
+              // leaves the operator on the view they were reading.
+              view: state.view,
+              week: state.week,
             }) as Route
           }
           className="mb-1 rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
