@@ -22,17 +22,17 @@ import { provisionThroughConsole } from './provision';
  * `page.once('dialog', …)`, its MESSAGE is asserted, and both answers are
  * driven — dismiss and accept — so the assertion dies if the confirm does.
  *
- * THE SECOND TRAP: the rules `<textarea>` carries `required={conversational}`
- * as a COURTESY (whatsapp-fields.tsx's own comment on it) — the boundary is
- * 0259's gate inside the database. A textarea truly left at length-zero is
- * caught by the BROWSER's own constraint validation before the click ever
- * reaches the server action, which would prove nothing about the database
- * gate at all. So this journey fills the field with a single space: HTML5's
- * `required` only tests for an empty string, but the server does
- * `nullif(btrim(coalesce(p_rules, '')), '')`, which treats whitespace exactly
- * as blank. That mismatch is the "client that skips or works around this
- * attribute" 0259's own migration comment names — reached here by ordinary
- * typed input, not by disabling anything.
+ * THE SECOND TRAP THIS FILE USED TO CARRY: the rules `<textarea>` briefly held
+ * a client-side `required`, which would have caught a length-zero field in the
+ * BROWSER's own constraint validation before the click ever reached the
+ * server action, proving nothing about the database gate at all. Final review,
+ * Important #1 removed that attribute — it disagreed with 0259's own D2 in
+ * both directions (see whatsapp-fields.tsx's comment on the textarea) — so
+ * this journey now leaves the field genuinely empty, the stronger case, and
+ * reaches the server unobstructed. Whitespace-only rules (`nullif(btrim(
+ * coalesce(p_rules, '')), '')` treating `'   '` the same as `''`) are covered
+ * where that expression lives: 71_promotion_rules_gate.test.sql's own
+ * assertion 6, not here.
  */
 const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -220,9 +220,9 @@ test('registering asks before discarding a draft, the rules gate refuses a blank
     await ownerPage.getByTestId('promotion-tab-whatsapp').click();
     await ownerPage.getByTestId('promotion-web-enabled').check();
 
-    // A single space, not nothing — see this file's header comment. HTML5's
-    // `required` accepts it; 0259's `btrim` does not.
-    await ownerPage.getByTestId('promotion-rules').fill(' ');
+    // Genuinely empty — see this file's header comment for why that is now
+    // the stronger case rather than a whitespace workaround.
+    await ownerPage.getByTestId('promotion-rules').fill('');
 
     await ownerPage.getByTestId('promotion-save').click();
 

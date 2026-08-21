@@ -1781,6 +1781,7 @@
     "optionalAsIssued": "Optional, exactly as it was issued",
     "programme": "Programme",
     "noProgramme": "No programme",
+    "aProgrammeIsLinkedThisOperatorCannotSeeProgrammes": "A Programme is linked, but this operator cannot see Programmes.",
     "rulesRequiredWhenADoorIsOpen": "The rules are required once entry by WhatsApp or on the website is on."
   },
   "music": {

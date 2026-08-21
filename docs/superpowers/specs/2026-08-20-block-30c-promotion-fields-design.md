@@ -224,21 +224,51 @@ it needs no referential action to hold.
 
 ## 6. Files
 
+Final review fix wave: this section undercounted the branch at first pass, naming
+ten files where `git diff main` (against the base named at the top of this document)
+names well over three times that — the ten below, plus every other file this block or
+its final review actually touched: two more pgTAP files the rules gate reaches into
+for its own reasons, three e2e journeys correcting a stale argument count, the
+isolation harness and two of its suites, and the unit suite this same wave finally
+populated. What follows IS that `git diff`, not a hand-kept list — the next reader who
+wants the authoritative one should re-run it rather than trust this section to have
+stayed current either.
+
 **New**
 - `supabase/migrations/0258_promotion_certificate_and_show.sql`
 - `supabase/migrations/0259_promotion_rules_gate.sql`
 - `supabase/tests/71_promotion_rules_gate.test.sql`
+- `tests/e2e/promotion-rules-gate.spec.ts`
+- `tests/unit/promotion-show-options.test.ts` — final review fix wave, Critical #1
 
 **Changed**
 - `src/services/promotions.ts` — the two fields, and a `showArchived` flag
+- `src/services/shows.ts` — `listShowOptions` (item 17's combobox)
 - `src/schemas/promotions.ts` — validation for both
-- `src/app/(app)/promotions/promotion-fields.tsx` — items 10 and 16
-- `src/app/(app)/promotions/whatsapp-fields.tsx` — the rules field's required state
+- `src/app/(app)/promotions/promotion-fields.tsx` — items 10 and 17, plus the
+  final review's `resolveShowOptions` (Critical #1)
+- `src/app/(app)/promotions/whatsapp-fields.tsx` — the rules field's required
+  state, removed again by the final review (Important #1)
 - `src/app/(app)/promotions/register-promotion-form.tsx` — item 13
-- `src/app/(app)/promotions/actions.ts`, `record.ts` — carrying the two fields
+- `src/app/(app)/promotions/actions.ts` — carrying the two fields
+- `src/app/(app)/promotions/page.tsx`, `promotions-grid.tsx`,
+  `promotion-record-dialog.tsx` — the combobox's data, and item 11's reorder
+- `src/app/(app)/shows/page.tsx` — Programmes joining the Promotions menu
+- `src/hooks/use-record-dialog.ts`
 - `src/lib/auth/shell.ts` — item 11
-- `messages/{en,pt,es}.json`
 - `src/lib/supabase/database.types.ts` — regenerated
+- `messages/{en,pt,es}.json`
+- `scripts/verify-isolation-suite.mjs`
+- `supabase/tests/02_permissions.test.sql`, `03_promotions.test.sql`,
+  `47_promotion_hashtag_collision.test.sql` — the nineteen-argument signature
+- `tests/e2e/deadline.spec.ts`, `draw-flow.spec.ts`, `send-lists.spec.ts` —
+  the same signature, in present-tense comments
+- `tests/isolation/harness.ts`, `participations.test.ts`, `promotions.test.ts`
+- `tests/unit/promotions-schema.test.ts` — the final review's §7 unit tests
+- `docs/DATABASE.md`, `docs/PERMISSIONS.md`
+
+**Not changed, despite an earlier version of this list saying otherwise:**
+`src/app/(app)/promotions/record.ts`.
 
 ---
 

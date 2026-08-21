@@ -227,9 +227,22 @@ begin
   -- `rules` was added nullable and unconstrained (0171) and both doors have been
   -- enable-able without it ever since, so promotions in production may already
   -- be door-on and rules-blank. Refusing the STATE would hold an operator
-  -- correcting a closing date hostage to a text they may not have; refusing the
-  -- TRANSITION stops anyone making it worse while leaving the existing shape
-  -- editable.
+  -- correcting a closing date hostage to a text they may not have; refusing
+  -- the TRANSITION leaves that existing shape editable instead.
+  --
+  -- WHAT THE PREDICATE ACTUALLY REFUSES: a door ending up on with rules blank,
+  -- UNLESS at least one door was ALREADY on with rules blank on the row being
+  -- replaced -- and once that is true, it is true of the save as a whole, not
+  -- of one door alone. A promotion already WhatsApp-on with blank rules CAN
+  -- have the web door opened in that same save without tripping this gate:
+  -- `not ((v_current_whatsapp or v_current_web) and blank)` is already
+  -- satisfied before the second door is even considered. That wider case
+  -- costs nothing regardless -- `widget_promotions` (0186) filters a
+  -- blank-rules promotion out of the widget on `p.rules is not null and
+  -- btrim(p.rules) <> ''`, and `ingest_whatsapp_event` (0179) answers
+  -- `no_rules` for exactly the same blankness, on whichever door the message
+  -- arrived by -- so nobody can enter through either door while the rules
+  -- stay blank, whether one door or two carry that flag.
   --
   -- A CHECK cannot express this -- not even NOT VALID -- because a CHECK sees
   -- only the row being written and never the row being replaced. That is why

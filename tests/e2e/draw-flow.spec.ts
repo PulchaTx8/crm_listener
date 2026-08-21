@@ -122,7 +122,7 @@ test.beforeAll(async () => {
   // Through a direct connection rather than through PostgREST or an RPC.
   // service_role holds no UPDATE on promotions — this schema revokes the
   // default ACL and grants back by hand, and that refusal is correct and worth
-  // leaving alone — while update_promotion is a seventeen-argument door whose
+  // leaving alone — while update_promotion is a nineteen-argument door whose
   // whole field set would have to be restated here to move one timestamp.
   const sql = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
   await sql.connect();

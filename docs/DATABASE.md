@@ -327,11 +327,11 @@ promotions attached is unremovable by construction, not merely discouraged.
 
 **Survives the Programme being archived, rather than being cleared.** A
 promotion that ran inside a Programme ran inside it whether or not the
-Programme is still on air — the same treatment `list_music_requests` gives an
-archived song (`0101`)'s reasoning: a historical fact outlives the thing it
-names. Block 30e is the reader this is for: it can still walk from a
-promotion to its Programme's schedule through a privileged path, unaffected
-by whether the Programme has since ended.
+Programme is still on air — `0101`'s own reasoning for the same shape of
+decision elsewhere: a historical fact outlives the thing it names. Block 30e
+is the reader this is for: it can still walk from a promotion to its
+Programme's schedule through a privileged path, unaffected by whether the
+Programme has since ended.
 
 **The display half of that promise cannot currently be kept**, found while
 building the record read (`getPromotionRecord`, `src/services/promotions.ts`):

@@ -1,9 +1,12 @@
 begin;
-select plan(9);
+select plan(10);
 
--- Block 30c. Two fields a promotion gains, and the rule that the entry text
--- cannot be blank once a door is open. This task covers the columns; the gate's
--- own cases are appended by 0259's task.
+-- Block 30c. Two fields a promotion gains -- the certificate (free text, no
+-- uniqueness) and the Programme link (an FK scoped to the same Station) -- and
+-- the gate 0259 adds to create_promotion and update_promotion, refusing a
+-- door to open (or an open door to have its rules blanked) while the entry
+-- text itself is empty or whitespace-only. Ten assertions: 1-3 and 9-10 cover
+-- the two columns, 4-8 cover the gate.
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-0000000030c1', 'Org 30c');
@@ -133,7 +136,23 @@ select throws_ok($$
 $$, '22023', 'a promotion that takes part by WhatsApp or on the website needs its rules',
   'a door cannot be opened while the rules are blank');
 
--- 6: clearing the rules while a door is on is refused.
+-- 6: the identical transition, refused for the identical reason, when the
+-- rules are whitespace rather than truly empty -- ...30d4 is reusable here
+-- because assertion 5's throws_ok rolled its own attempt back, so the row is
+-- still door-off/rules-null. update_promotion's own `nullif(btrim(coalesce(
+-- p_rules, '')), '')` is what makes whitespace count as blank; this is the
+-- assertion that proves it does rather than assuming it from the expression
+-- alone.
+select throws_ok($$
+  select public.update_promotion(
+    '00000000-0000-0000-0000-0000000030d4', 'Promo D4 espacos',
+    now(), now() + interval '10 days',
+    null, null, false, null, false, true, '#hash30c2', null, null, '{}', null,
+    false, '   ')
+$$, '22023', 'a promotion that takes part by WhatsApp or on the website needs its rules',
+  'whitespace-only rules trip the gate exactly like blank ones');
+
+-- 7: clearing the rules while a door is on is refused.
 select throws_ok($$
   select public.update_promotion(
     '00000000-0000-0000-0000-0000000030d5', 'Promo D5',
@@ -143,7 +162,7 @@ select throws_ok($$
 $$, '22023', 'a promotion that takes part by WhatsApp or on the website needs its rules',
   'the rules cannot be cleared while a door is open');
 
--- 7: AND THE ONE THAT MUST BE ALLOWED, which is the decision this gate exists
+-- 8: AND THE ONE THAT MUST BE ALLOWED, which is the decision this gate exists
 -- to express. A promotion already door-on and rules-blank -- a shape reachable
 -- since 0171 made rules nullable -- stays editable. An operator correcting a
 -- closing date is not held hostage to a text they may not have.
@@ -155,7 +174,7 @@ select lives_ok($$
     true, null)
 $$, 'a promotion already door-on and rules-blank stays editable');
 
--- 8: create_promotion actually writes p_authorization_certificate and
+-- 9: create_promotion actually writes p_authorization_certificate and
 -- p_show_id rather than accepting and dropping them on the floor -- the
 -- failure mode 52_inventory_tabs.test.sql:294 names for p_show_id on a
 -- different RPC ("a door that drops p_show_id on the floor leaves this
@@ -175,7 +194,7 @@ select is(
   array['CERT-30C2', '00000000-0000-0000-0000-0000000030f1'],
   'create_promotion writes authorization_certificate and show_id rather than dropping them');
 
--- 9: update_promotion writes the same two fields, checked on the write door
+-- 10: update_promotion writes the same two fields, checked on the write door
 -- that replaces wholesale rather than the one that inserts -- and to a
 -- DIFFERENT certificate and a DIFFERENT show (...30f3, seeded above for
 -- exactly this), so a body that just left the old values in place could not

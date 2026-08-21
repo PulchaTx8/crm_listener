@@ -8,6 +8,50 @@ import type { PromotionDetail } from '@/services/promotions';
 import type { ShowOption } from '@/services/shows';
 import { fromZonedWallClock, toZonedDateTime } from './zone';
 
+export interface ShowSelectOption {
+  id: string;
+  label: string;
+}
+
+/**
+ * Final review, C1. The combobox's own option list, `shows` plus (sometimes)
+ * one more entry the caller cannot otherwise choose.
+ *
+ * `record.showId` is not always among `shows`: every caller who holds
+ * promotions.edit without music.view gets `shows: []` from `listShowOptions`
+ * (shows_select_music_view, 0099:55-57, has no owner exception), and an
+ * archived Programme is unlisted for every caller, owner included (D3a,
+ * found during this task). A native `<select>` whose `defaultValue` names no
+ * option among its children falls back to the FIRST one — here, "No
+ * programme" — and posting that on a save about something else entirely (the
+ * closing date, say) is what update_promotion's wholesale replace
+ * (0259:320) turns into a silent null. Appending an option that carries
+ * `record.showId` is what gives the browser something to land on instead.
+ *
+ * A pure function rather than inline JSX so it can be proven without a DOM
+ * (this project's unit tests run in vitest's `node` environment — see
+ * `nextRecordAfterFailedRead` in `promotion-record-dialog.tsx` for the same
+ * shape of reasoning): a static-markup render was tried first and does show
+ * the right `<option>` gaining `selected`, but that only proves what THIS
+ * function already decides, one layer down and with heavier fixtures.
+ *
+ * `fallbackLabel` is shown instead of a name in exactly the case that
+ * matters: the embed `shows(name, deleted_at)` goes through the same policy
+ * as the list, so `record.showName` is null for the one caller who needs
+ * this entry at all.
+ */
+export function resolveShowOptions(
+  shows: ShowOption[],
+  record: Pick<PromotionDetail, 'showId' | 'showName'> | null,
+  fallbackLabel: string,
+): ShowSelectOption[] {
+  const options: ShowSelectOption[] = shows.map((show) => ({ id: show.id, label: show.name }));
+  if (record?.showId && !shows.some((show) => show.id === record.showId)) {
+    options.push({ id: record.showId, label: record.showName ?? fallbackLabel });
+  }
+  return options;
+}
+
 /**
  * The Promotion tab's fields. Presentational: the dialog owns the `<form>`,
  * because these and the WhatsApp tab's fields are ONE submission —
@@ -131,9 +175,23 @@ export function PromotionFields({
             data-testid="promotion-show"
           >
             <option value="">{t('noProgramme')}</option>
-            {shows.map((show) => (
-              <option key={show.id} value={show.id}>
-                {show.name}
+            {/* Final review, C1. `resolveShowOptions` (above) appends the
+                linked Programme when `shows` does not carry it -- a member
+                holding promotions.edit without music.view, or a Programme
+                D3a already found archived out of this list for everyone --
+                so `defaultValue` above always names something the browser can
+                select, and an unrelated save (the closing date, say) never
+                falls back to "No programme" and nulls show_id through
+                update_promotion's wholesale replace (0259:320). The select
+                stays enabled throughout: an operator who can see Programmes
+                still has "No programme" to clear the link on purpose. */}
+            {resolveShowOptions(
+              shows,
+              record,
+              t('aProgrammeIsLinkedThisOperatorCannotSeeProgrammes'),
+            ).map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
               </option>
             ))}
           </Select>

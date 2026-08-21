@@ -1781,7 +1781,8 @@
     "optionalAsIssued": "Opcional, tal como fue emitido",
     "programme": "Programa",
     "noProgramme": "Sin programa",
-    "rulesRequiredWhenADoorIsOpen": "Las reglas son obligatorias cuando la participación por WhatsApp o por el sitio está activada."
+    "aProgrammeIsLinkedThisOperatorCannotSeeProgrammes": "Hay un Programa vinculado, pero este operador no puede ver Programas.",
+    "rulesRequiredWhenADoorIsOpen": "El reglamento es obligatorio cuando la participación por WhatsApp o por el sitio está activada."
   },
   "music": {
     "closeRecord": "Cerrar ficha",

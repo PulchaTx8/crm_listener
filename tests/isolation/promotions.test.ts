@@ -405,6 +405,67 @@ describe('the promotion record', () => {
       expect(record?.siteIntegrationCode).toBeNull();
     });
 
+    /**
+     * Final review, Critical #1. The read-side half of the chain the fix in
+     * `promotion-fields.tsx` depends on: `getPromotionRecord`'s `showId` comes
+     * from the promotions row itself (services/promotions.ts:657), never the
+     * `shows(name, deleted_at)` embed `showName` reads through, so a delegate
+     * shows_select_music_view (0099:55-57) empties out of the Programme list
+     * still gets the raw id back. The "registering" test above grants
+     * music.view specifically to prove the embed positively resolves; this
+     * delegate does the opposite on purpose, matching D4's own recorded gap.
+     *
+     * What this does NOT prove: `promotion-fields.tsx`'s `<select>` actually
+     * rendering the id it is given as the selected option — that is a browser
+     * behaviour (a native `<select>` whose `defaultValue` names no option
+     * among its children falls back to the first one, deterministically, with
+     * no JavaScript involved) with no DOM in this suite to observe it against.
+     * `tests/unit/promotion-show-options.test.ts` proves the option list the
+     * component hands that `<select>` instead, as a pure function. What THIS
+     * test proves is the server-side half: the value the fixed combobox
+     * carries forward genuinely is the one this caller was given, and
+     * resubmitting it on an update about something else entirely survives —
+     * neither the read nor the write silently drops it for this permission
+     * shape.
+     */
+    it('reads back and preserves show_id for a delegate without music.view, who cannot see Programmes at all', async () => {
+      const label = `promo-edit-show-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const showId = await seedShow(customer, `Programme ${label}`);
+      const promotionId = await createAsOwner(customer, { showId });
+
+      // promotions.edit and promotions.view ONLY — no music.view anywhere in
+      // the role, unlike the "registering" test's delegate above.
+      const delegate = await grantRoleWith(customer, label, [
+        'promotions.edit',
+        'promotions.view',
+      ]);
+      const token = await tokenFor(delegate.email, delegate.password);
+
+      const before = await getPromotionRecord(promotionId, token);
+      expect(before?.showId).toBe(showId);
+      expect(before?.showName).toBeNull();
+
+      // What the fixed form now always resubmits: the id just read back,
+      // carried forward by its ghost <option> even though this caller's own
+      // combobox never listed it as a choice. The date is what is actually
+      // being edited here — the Programme link is not the point of this save,
+      // exactly as C1's own operator-editing-the-closing-date scenario was.
+      await updatePromotion(
+        promotionId,
+        promotionInput(customer.companyId, {
+          name: 'Edited elsewhere',
+          endsAt: new Date(Date.now() + 60 * DAY).toISOString(),
+          showId: before?.showId ?? undefined,
+        }),
+        token,
+      );
+
+      const after = await getPromotionRecord(promotionId, token);
+      expect(after?.showId).toBe(showId);
+      expect(after?.name).toBe('Edited elsewhere');
+    });
+
     it('is refused without promotions.edit, and leaves the row alone', async () => {
       const label = `promo-edit-denied-${Date.now()}`;
       const customer = await provisionCustomer(label);

@@ -29,12 +29,19 @@ comment on column public.promotions.authorization_certificate is
 --
 -- NO ON DELETE ACTION, and none is needed: shows is soft-deleted through
 -- deleted_at (0098), so a Programme is never actually removed for a rule to
--- fire on. A promotion keeps pointing at an archived Programme on purpose (D3)
--- -- a promotion that ran inside a Programme ran inside it whether or not the
--- Programme is still on air, and the screen says "archived" beside the name
--- rather than implying it is still scheduled. Same treatment list_music_requests
--- gives an archived song, and for the reason 0101 gives: a historical fact
--- outlives the thing it names.
+-- fire on. A promotion keeps pointing at an archived Programme on purpose
+-- (D3) -- a promotion that ran inside a Programme ran inside it whether or
+-- not the Programme is still on air, and a historical fact outlives the thing
+-- it names (the reason 0101 gives).
+--
+-- D3a (spec doc, found during this task): the DISPLAY half of D3 -- a marker
+-- beside the name saying "archived" -- cannot be kept, and this migration no
+-- longer promises it. shows_select_music_view (0099:55-57) carries no owner
+-- exception, so an archived Programme is unreadable through the embed for
+-- EVERY caller, not only an unprivileged one; promotion-fields.tsx renders no
+-- branch for it, and its own comment says why. The LINK still survives
+-- regardless -- Block 30e can still read the Programme's schedule off
+-- show_id even on a row whose name can no longer be shown.
 alter table public.promotions
   add constraint promotions_show_fk
   foreign key (show_id, company_id) references public.shows (id, company_id);
