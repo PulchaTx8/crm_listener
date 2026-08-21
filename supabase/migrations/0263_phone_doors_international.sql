@@ -14,7 +14,8 @@
 -- was reversed on 2026-08-21. The reason GIVEN for reversing it -- that a
 -- visitor typing the local form never received a code -- was wrong, and is
 -- corrected at the call site rather than repeated: the widget has composed
--- '+' || digits since 2026-08-11. What the reversal is actually worth is that
+-- '+' || digits since 2026-08-10 (commit 658174b). What the reversal is
+-- actually worth is that
 -- asking in one spelling and entering in another now matches, and that a
 -- service_role caller which is not the shipped form gets the same treatment.
 --
@@ -115,14 +116,28 @@ begin
   -- the split item 1b exists to stop, in the one direction this migration does
   -- not close.
   --
-  -- COMPUTED, NOT ECHOED. Searching p_phone back would only help a caller who
-  -- happened to type the local form: every real caller of this door already
-  -- sends what it sends, so a `v_phone is distinct from p_phone` guard is false
-  -- for them and the second search never runs. whatsapp_local_phone(v_phone) is
-  -- the bot's own function applied to the canonical value, so it produces the
-  -- bot's spelling whatever the caller typed. It strictly covers the raw case
-  -- too: a caller who did type the local form has v_phone normalising to the
-  -- prefixed digits and v_local back to exactly what they typed.
+  -- COMPUTED, NOT ECHOED, and the reason differs by door -- which is why this
+  -- comment does not claim one reason for all of them.
+  --
+  -- AT THIS DOOR the earlier `v_phone is distinct from p_phone` guard was TRUE
+  -- and its search really did run. Both real callers hand over keystrokes: the
+  -- Participations manual form posts a bare <Input name="phone">
+  -- (record-participation-form.tsx:264 -- no country-code composer, and
+  -- src/schemas/participations.ts:50 only trims, caps at 40 and demands one
+  -- digit), and import_participations feeds spreadsheet cells straight through.
+  -- What was wrong there was not that the search never ran but WHAT it searched:
+  -- an operator who typed the international form made the raw search look for
+  -- the same number the canonical search had just looked for, so the bot's row
+  -- was missed anyway. At widget_verify_code and api_record_music_request the
+  -- guard was false outright, because their callers post the international form
+  -- already.
+  --
+  -- whatsapp_local_phone(v_phone) answers both: it is the bot's own function
+  -- applied to the canonical value, so it produces the bot's spelling whatever
+  -- the caller typed. It subsumes the old search rather than replacing it --
+  -- when the operator DID type the local form, v_local comes back as exactly
+  -- the digits they typed -- and it additionally covers the case the old one
+  -- could not reach.
   --
   -- Delete this branch when the bot's doors write the canonical form too.
   v_local := public.whatsapp_local_phone(v_phone);
@@ -502,7 +517,7 @@ begin
   -- AND THE STATED REASON FOR REVERSING IT WAS WRONG, so it is not repeated
   -- here. It said a visitor typing 11 98888-7777 got a row, an outbox message,
   -- an 'ok', and no code Meta could deliver. That is not reachable through the
-  -- widget and has not been since 2026-08-11: composePhone
+  -- widget and has not been since 2026-08-10 (commit 658174b): composePhone
   -- (src/app/(widget)/w/[publicKey]/identify-form.tsx:41) joins a country-code
   -- box to a local box and posts '+' || digits, and its own comment records
   -- that as the fix for exactly this harm.
@@ -515,7 +530,7 @@ begin
   --     what a number is, so a verification is legible next to a member.
   --   * a caller that is NOT the widget gets the same protection. Both doors
   --     are granted to service_role, so the shipped form is not the only thing
-  --     that can reach them, and the pre-2026-08-11 harm is what an unguarded
+  --     that can reach them, and the harm 658174b removed is what an unguarded
   --     caller still walks into.
   --
   -- Storing the canonical form does not break the second call, it fixes it:
@@ -780,7 +795,8 @@ begin
   -- under the local form, and searching only the canonical one would hand a
   -- visitor the bot already knows a second row. Computed with
   -- whatsapp_local_phone rather than echoing p_phone back, because the widget's
-  -- own form has posted '+' || digits since 2026-08-11 (composePhone,
+  -- own form has posted '+' || digits since 2026-08-10, commit 658174b
+  -- (composePhone,
   -- identify-form.tsx:41) -- a guard comparing v_phone with p_phone would be
   -- false for every real visitor and this branch would never run. It resolves;
   -- it writes nothing, so a listener found by it keeps the phone the bot stored.
@@ -1144,7 +1160,7 @@ begin
    where c.id = v_integ.company_id;
 
   v_phone := public.international_phone(p_phone, v_country);
-  v_local := public.whatsapp_local_phone(p_phone);
+  v_local := public.whatsapp_local_phone(v_phone);
 
   -- CANONICAL FORM FIRST, LOCAL FORM SECOND. 0231 shipped this same pair in
   -- the opposite order, back when the local form was the likelier way a
@@ -1159,10 +1175,26 @@ begin
   -- the two is always the delivered form. Two lookups before, two lookups now.
   --
   -- The guard compares v_local against normalize_phone(v_phone) rather than
-  -- against v_phone itself, and the three resolving doors in this file use the
-  -- identical test. v_phone carries a leading plus and v_local never does, so a
-  -- direct comparison is true even when the two name the same digits, and the
-  -- second lookup would fire knowing it must miss.
+  -- against v_phone itself, and the three resolving doors in this file now use
+  -- the identical expression on both sides. v_phone carries a leading plus
+  -- WHENEVER THE NUMBER COULD BE PLACED -- not always: at a Station with no
+  -- country, and for a length no rule explains, international_phone answers the
+  -- bare digits and a direct comparison against v_phone would already have been
+  -- right. It is when the plus IS there that a direct comparison goes wrong,
+  -- being true even where the two name the same digits, and firing a second
+  -- lookup that can only miss.
+  --
+  -- v_local IS COMPUTED FROM v_phone HERE TOO, as of fix round 3. 0231 computed
+  -- it from p_phone and the two agree for everything this door is actually fed
+  -- -- Meta delivers an international wa_id, which international_phone leaves
+  -- alone, so v_phone and p_phone normalise identically. They do NOT agree for
+  -- an arbitrary argument: hand this door a Portuguese national number at a
+  -- Portuguese Station and whatsapp_local_phone(p_phone) answers 912345678
+  -- while whatsapp_local_phone(v_phone) answers 351912345678, because it strips
+  -- a leading 55 and nothing else. The second is the right one -- it is the
+  -- spelling a bot would have written -- and making all four doors compute the
+  -- identical expression is what lets this comment say "identical" and be
+  -- checked rather than believed.
   v_member := public.apply_member_lookup(v_integ.organization_id, v_phone, null, null, null);
   if v_member is null and v_local is distinct from public.normalize_phone(v_phone) then
     v_member := public.apply_member_lookup(v_integ.organization_id, v_local, null, null, null);

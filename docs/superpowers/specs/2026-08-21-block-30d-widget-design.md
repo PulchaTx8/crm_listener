@@ -180,11 +180,29 @@ look for `international_phone`'s answer and then, if that finds nobody, for
 already had. That is not caution: the WhatsApp doors below still register
 listeners under the local form, so a canonical-only search would miss the
 listener the bot already knows and register them a second time — the very split
-item 1b exists to stop, arriving from the other direction. The second search is
-*computed*, never the caller's raw argument echoed back: every real caller of
-these doors already posts the international form, so a guard comparing the
-canonical value with the argument would be false and the branch would never run.
-The branches say when they can be deleted.
+item 1b exists to stop, arriving from the other direction.
+
+The second search is **computed** — `whatsapp_local_phone` applied to the
+canonical value — and never the caller's raw argument echoed back. The reason
+differs by door, and an earlier draft of this paragraph wrongly gave one reason
+for all three:
+
+- At **`widget_verify_code`** and **`api_record_music_request`** a guard
+  comparing the canonical value against the argument is simply *false*: their
+  callers already post the international form (the widget's `composePhone`,
+  `identify-form.tsx:41`; the API's documented contract, `docs/API.md:147`), so
+  a raw second search would never run at all.
+- At **`resolve_or_create_member`** it was true and the raw search did run —
+  both its callers hand over keystrokes, the Participations manual form
+  (`record-participation-form.tsx:264`, a bare input; `schemas/participations.ts:50`
+  only trims) and `import_participations` feeding spreadsheet cells. What was
+  wrong there was *what* it searched: an operator typing the international form
+  made the raw search look for the number the canonical search had already
+  looked for, so the bot's row was missed anyway.
+
+Computing the bot's spelling answers both, and subsumes the raw search: when the
+operator did type the local form, the computed value is exactly the digits they
+typed. The branches say when they can be deleted.
 
 **The list is derived, not remembered.** `grep -rln "p_phone" supabase/migrations/`
 is what produced it, and the plan re-runs that grep rather than trusting this
@@ -226,8 +244,11 @@ and there is no log call anywhere on the path. `supabase/tests/72_international_
 assertion 24 pins the real behaviour.)
 
 **A leading `+` overrides all of this, at any Station.** `international_phone`
-returns a plus-prefixed argument unchanged, before it consults the country at
-all — see 0260's own comment. Without that, the length test decides using the
+returns `'+'` followed by the argument's **digits** — punctuation and spacing are
+still stripped by `normalize_phone`, so `+55 (11) 98888-7777` comes back as
+`+5511988887777` — and it does so before consulting the country at all. What
+survives is the plus, not the formatting; 0260's own comment states it the same
+way. Without that, the length test decides using the
 *Station's* national range and cannot tell a foreign number from a local one: at
 a Brazilian Station (national 10–11) the eleven-digit `+12125551234` would be
 read as national and rewritten to `+5512125551234`, and because `update_member`

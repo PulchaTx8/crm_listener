@@ -301,8 +301,8 @@ select is(
 -- NOT A DEFECT THE SHIPPED WIDGET HAS, and saying otherwise was the false
 -- justification this round removed from 0263. composePhone
 -- (src/app/(widget)/w/[publicKey]/identify-form.tsx:41) has posted '+' || digits
--- since 2026-08-11 and its own comment records that as the fix for exactly this
--- harm. What this assertion holds is the door's own half of it: widget_verify_code
+-- since 2026-08-10 (commit 658174b) and its own comment records that as the fix
+-- for exactly this harm. What this assertion holds is the door's own half of it: widget_verify_code
 -- and widget_request_code are granted to service_role, so the shipped form is not
 -- the only thing that can reach them, and this pins that the door no longer
 -- depends on its caller having got the spelling right.
