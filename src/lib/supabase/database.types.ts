@@ -5653,6 +5653,17 @@ export type Database = {
           participation_id: string
         }[]
       }
+      promotion_show_schedule: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          band: number
+          ends_at: string
+          show_id: string
+          show_name: string
+          starts_at: string
+          weekday: number
+        }[]
+      }
       promotion_write_error: {
         Args: {
           p_constraint?: string
