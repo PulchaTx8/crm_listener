@@ -105,11 +105,13 @@ the selected Station's zone — `page.tsx` hands `selected.timezone` to the
 participations filters today — and the grid uses the same value through the same
 module, `src/app/(app)/promotions/zone.ts`.
 
-The now-line is the one moving part, so it is the one client component: it
-receives the Station's zone and the week being shown, positions itself, and
-re-positions each minute. It renders nothing when the week on screen is not the
-week containing that Station's today — a red line across a week in March means
-nothing.
+The board is a client component, because a block has to open the SAME record
+dialog the list opens and that dialog is driven by `useRecordDialog`. Nothing is
+derived there: the geometry is computed on the server by a pure module, and the
+board draws it. The now-line is the one moving part, and it ticks forward from
+the minute the SERVER read in the Station's zone rather than from the browser's
+own clock. It renders nothing when the week on screen is not the week containing
+that Station's today — a red line across a week in March means nothing.
 
 ### D3 — One band, one block; the overnight tail is a second block
 
@@ -305,6 +307,13 @@ is named, and returns a withheld payload rather than counts when
 `participations.view` is missing — the three-way shape copied from
 `get_promotions_dashboard` rather than re-derived, down to the error sentences,
 which the e2e suite matches on.
+
+**`members.view` withholds too, and it has to.** The map plots the LISTENERS
+behind the entries, and this function is SECURITY INVOKER: a caller who cannot
+read `members` would get every place cut by their own RLS and an empty map under
+a coverage line still naming a total. An empty map claims the Station has no
+geography, which is a different and false claim. So the payload names whichever
+of the two permissions is missing, and the panel says which.
 
 Like Block 28's panel, and for its reason: **without
 `NEXT_PUBLIC_GOOGLE_MAPS_KEY` the ranked tables render unchanged** and one muted
