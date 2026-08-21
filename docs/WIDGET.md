@@ -169,13 +169,31 @@ home page.
 **Suspension and blocking are read live, at the door, and there is nothing to
 switch back on afterwards.** `suspend_company` sets `companies.status` and
 blocking an Organization sets `organizations.suspended_at`; neither touches
-`widget_installations.enabled`, and `0164` joins both conditions into all
-three widget doors rather than having those functions disable the installation.
+`widget_installations.enabled`, and `0164` joins both conditions into the three
+doors it rewrites rather than having those functions disable the installation.
 So releasing a customer restores their widget with no console step — and,
 before `0164`, a Station suspended for non-payment went on framing, went on
 billing its owner for verification codes, and went on writing listeners into a
 blocked Organization until somebody remembered to disable the installation by
 hand.
+
+**One gap in that, and it is open at the time of writing (Block 30d).** The
+paragraph above is about the doors that FRAME the widget and IDENTIFY a
+visitor. The doors a visitor uses once identified — listing promotions and
+shows, and entering a promotion — all gate on one function,
+`widget_listener_context`, and **that function checks the Station but not the
+Organization**: `companies.status`, `companies.suspended_at` and
+`companies.deleted_at`, with no `organizations` join at all. A **suspended
+Station** is refused everywhere. A **blocked Organization** is refused by the
+page (so `/w/<key>` 404s, which is why this reads as closed) and not by the
+Server Actions behind it, so a listener holding a widget session cookie minted
+before the block can still enter a promotion — writing a consent, a
+participation and an audit row into an Organization somebody blocked. Verified
+against the live database, not inferred. It is a one-join change and a
+deliberate decision rather than an oversight to fix in passing; the reading,
+the probe and the cost are in
+`.superpowers/sdd/2026-08-21-block-30d-widget/task-8-report.md` §47, alongside
+the two matching holes in the WhatsApp door.
 
 **An installation with no origins configured is a different case, and it
 does not 404.** `widget_frame_context` (`0161`, rewritten by `0164`) decides
@@ -818,15 +836,24 @@ English and then opens the Station's own site now sees the widget in
 whatever language the Station chose — not the language they last picked for
 themselves, which was the defect this item was written against.
 
-**Known limit, recorded rather than fixed here: `<html lang>` still names
-the cookie's locale, never the Station's.** It is set once, by the root
-layout (`src/app/layout.tsx`), which wraps every route this deployment
-serves and has no way to know which widget installation a given request is
-for. A listener reading the widget in Spanish still gets a document whose
-`lang` attribute says whatever the last signed-in operator's cookie said —
-visible to a screen reader or a translation tool, invisible to anyone just
-reading the page. Fixing it needs a root layout that can read the route it
-is about to serve before it renders; this block did not attempt that.
+**The widget's own content declares its language; the `<html>` element
+still does not.** Both frames (`EmbeddedFrame` and `AppFrame`, in
+`w/[publicKey]/frames.tsx`) carry `lang` on the element that wraps the
+widget's content, set from the same locale the widget's own provider
+resolves. `lang` is inherited from the nearest ancestor that declares it, so
+that is what actually governs the harm: the voice a screen reader uses, and
+whether a browser offers to translate a page already in the reader's
+language. A listener reading a Spanish widget is announced in Spanish.
+
+**What genuinely remains is the `<html lang>` attribute itself**, which the
+root layout (`src/app/layout.tsx`) sets once, from the request's own
+resolution, for every route this deployment serves — and which nothing
+rendered *inside* the route can reach. Changing it would need a root layout
+able to read the route it is about to serve before it renders, which this
+block did not attempt. **The residue is inert**: every string the widget
+renders sits inside one of those two frames, so on `/w` the document's own
+`lang` is the nearest declaration for no text at all — it names a language
+nothing beneath it is written in.
 
 A promotion's own question text is a second, smaller change riding the same
 release: the text an operator wrote in `promotion_questions.prompt` is now

@@ -1,5 +1,5 @@
 begin;
-select plan(24);
+select plan(25);
 
 -- The ordinary Brazilian mobile, typed as an operator types it.
 select is(public.international_phone('(11) 99999-8888', 'BR'), '+5511999998888',
@@ -59,8 +59,11 @@ select is(public.international_phone('+1 212 555 1234', 'BR'), '+12125551234',
 -- companies/members tables: this project's local test database carries no
 -- global seed (no supabase/seed.sql), so a count taken over those tables
 -- holds vacuously over zero rows -- true with the repair applied and equally
--- true without it, which asserts nothing. These four assertions instead seed
--- a row known to need the repair and check what the repair actually did to it.
+-- true without it, which asserts nothing. The assertions below instead seed
+-- rows known to need the repair and check what the repair actually did to
+-- them. (This sentence used to count them, and the count went stale the first
+-- time one was added: a number nothing recomputes is a comment waiting to
+-- lie.)
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-000000000721', 'Org 72');
 insert into public.companies (id, organization_id, name, country) values
@@ -69,6 +72,37 @@ insert into public.members (id, organization_id, phone) values
   ('00000000-0000-0000-0000-000000000723', '00000000-0000-0000-0000-000000000721', '11999998888');
 insert into public.member_company_links (member_id, company_id, organization_id) values
   ('00000000-0000-0000-0000-000000000723', '00000000-0000-0000-0000-000000000722', '00000000-0000-0000-0000-000000000721');
+
+-- A SECOND LISTENER, LINKED TO TWO STATIONS OF DIFFERENT COUNTRIES, which is
+-- the case 0262's `distinct on` exists for. Ten digits beginning 21: under US
+-- (national range 10-10, calling code 1) international_phone answers
+-- '+12125551234'; under BR (10-11, calling code 55) it answers
+-- '+552125551234'. Two different numbers for one listener, and a bare join
+-- would let the planner pick. The US link is the OLDER one, so the rule 0262
+-- copies from update_member -- `order by l.linked_at, c.id`, oldest first --
+-- has to pick the answer that is not the one every other row in this file
+-- gets, which is what makes the assertion below read as a statement about the
+-- ordering rather than about the number.
+--
+-- WHAT THIS DOES NOT PROVE, said plainly: it cannot fail against the wholesale
+-- join it replaced. That join was NON-DETERMINISTIC here, not wrong in a fixed
+-- direction, so a single run of it could reach this same answer by luck. What
+-- the assertion pins is the RULE, so the day somebody reorders it -- or drops
+-- it back to a bare join and this database answers the other way -- the file
+-- says so.
+--
+-- A different number from the listener above, not the same one: phone_normalized
+-- is unique per Organization (members_phone_unique, 0031) and both listeners
+-- live in Org 72.
+insert into public.companies (id, organization_id, name, country) values
+  ('00000000-0000-0000-0000-000000000725', '00000000-0000-0000-0000-000000000721', 'Station 72 US', 'US');
+insert into public.members (id, organization_id, phone) values
+  ('00000000-0000-0000-0000-000000000724', '00000000-0000-0000-0000-000000000721', '2125551234');
+insert into public.member_company_links (member_id, company_id, organization_id, linked_at) values
+  ('00000000-0000-0000-0000-000000000724', '00000000-0000-0000-0000-000000000725',
+   '00000000-0000-0000-0000-000000000721', '2020-01-01T00:00:00Z'),
+  ('00000000-0000-0000-0000-000000000724', '00000000-0000-0000-0000-000000000722',
+   '00000000-0000-0000-0000-000000000721', '2024-01-01T00:00:00Z');
 
 -- 0261, applied verbatim.
 update public.companies
@@ -85,13 +119,18 @@ select is(
 -- the display form (with its leading plus) and phone_normalized is digits
 -- only, so comparing against the generated column would report an already-
 -- repaired row as still needing repair -- a predicate that never settles.
+with station as (
+  select distinct on (l.member_id) l.member_id, c.country
+    from public.member_company_links l
+    join public.companies c on c.id = l.company_id
+   order by l.member_id, l.linked_at, c.id
+)
 update public.members m
-   set phone = public.international_phone(m.phone, c.country)
-  from public.member_company_links l
-  join public.companies c on c.id = l.company_id
- where l.member_id = m.id
+   set phone = public.international_phone(m.phone, station.country)
+  from station
+ where station.member_id = m.id
    and m.phone is not null
-   and public.international_phone(m.phone, c.country) is distinct from m.phone;
+   and public.international_phone(m.phone, station.country) is distinct from m.phone;
 
 select is(
   (select phone from public.members where id = '00000000-0000-0000-0000-000000000723'),
@@ -109,6 +148,14 @@ select is(
 select is(
   (select phone_normalized from public.members where id = '00000000-0000-0000-0000-000000000723'),
   '5511999998888', 'phone_normalized regenerates from the repaired phone, plus stripped');
+
+-- The two-Station listener seeded above. '+552125551234' here would mean the
+-- newer Brazilian link won, which is the answer update_member would then
+-- disagree with on this listener's next ficha save.
+select is(
+  (select phone from public.members where id = '00000000-0000-0000-0000-000000000724'),
+  '+12125551234',
+  'a listener linked to two countries is repaired under the OLDEST link''s Station, the rule update_member uses');
 
 -- Re-running the repair over an already-repaired row changes nothing, which
 -- is what makes it safe to ship twice (a migration re-applied by hand after a
@@ -133,13 +180,18 @@ do $$
 declare
   v_row_count integer;
 begin
+  with station as (
+    select distinct on (l.member_id) l.member_id, c.country
+      from public.member_company_links l
+      join public.companies c on c.id = l.company_id
+     order by l.member_id, l.linked_at, c.id
+  )
   update public.members m
-     set phone = public.international_phone(m.phone, c.country)
-    from public.member_company_links l
-    join public.companies c on c.id = l.company_id
-   where l.member_id = m.id
+     set phone = public.international_phone(m.phone, station.country)
+    from station
+   where station.member_id = m.id
      and m.phone is not null
-     and public.international_phone(m.phone, c.country) is distinct from m.phone;
+     and public.international_phone(m.phone, station.country) is distinct from m.phone;
   get diagnostics v_row_count = row_count;
   create temporary table t72_second_run as select v_row_count as row_count;
 end $$;

@@ -1713,6 +1713,14 @@ test('the widget renders in the Station language even when the browser carries a
   // 'Request a song', which is what an English-resolving widget would show
   // this cookie in hand.
   await expect(widget.getByRole('button', { name: 'Pedir uma música' })).toBeVisible();
+
+  // AND IT SAYS SO IN THE MARKUP, not only in the words. `<html lang>` inside
+  // this iframe still names the cookie's locale -- the root layout sets it and
+  // nothing inside the route can reach it (docs/WIDGET.md §14) -- so the
+  // declaration a screen reader actually resolves is the one the widget's own
+  // frame carries. This is the assertion that fails if that attribute is
+  // dropped, which no visible text would notice.
+  await expect(widget.locator('div[lang]')).toHaveAttribute('lang', 'pt');
 });
 
 /**

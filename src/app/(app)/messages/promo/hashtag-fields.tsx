@@ -27,10 +27,15 @@ export type HashtagFieldEvent = 'edited' | 'saved';
  * resets the INPUTS (a sibling concern, still correct) but not this
  * component's own state, since `HashtagFields` itself is never remounted.
  *
- * `previous` is threaded through, unused, because this is called as
- * `setState((previous) => nextShowSavedConfirmation(previous, event))` at
- * both call sites — the shape a reducer over one event needs, even though
- * this particular rule happens to be a constant function of `event` alone.
+ * `previous` is threaded through, unused, because every caller calls it as
+ * `setState((previous) => nextShowSavedConfirmation(previous, event))` — the
+ * shape a reducer over one event needs, even though this particular rule
+ * happens to be a constant function of `event` alone.
+ *
+ * SHARED WITH `listener-language.tsx`, the card directly below this one on
+ * `/messages/promo`, rather than copied into it: both answer the operator's
+ * one question ("did my save land?"), and the finding above is exactly the
+ * kind that survives in one copy and rots in the other.
  */
 export function nextShowSavedConfirmation(previous: boolean, event: HashtagFieldEvent): boolean {
   return event === 'saved';

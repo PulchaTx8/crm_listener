@@ -110,10 +110,20 @@ export default async function WidgetPage({
     // resolves to nothing to be identified.
     if (linkExpired) {
       const expired = <IdentifyForm publicKey={publicKey} linkExpired />;
+      // THE REQUEST'S OWN LOCALE HERE, not a Station's: this branch is reached
+      // precisely when the key resolves to no installation, so there is no
+      // Station to have chosen anything, and this screen renders under the
+      // ROOT provider — the same catalogue `<html lang>` already names. Stated
+      // rather than left off, because an omitted `lang` and a `lang` that
+      // happens to equal the document's read identically on screen and only
+      // one of them says which it meant.
+      const requestLocale = await getLocale();
       return (await resolvePresentation()) === 'embedded' ? (
-        <EmbeddedFrame>{expired}</EmbeddedFrame>
+        <EmbeddedFrame lang={requestLocale}>{expired}</EmbeddedFrame>
       ) : (
-        <AppFrame identity={null}>{expired}</AppFrame>
+        <AppFrame identity={null} lang={requestLocale}>
+          {expired}
+        </AppFrame>
       );
     }
     notFound();
@@ -133,7 +143,29 @@ export default async function WidgetPage({
   // were just reading, rather than the wrap applying to one screen and not
   // the other.
   const widgetLocale = context.listenerLocale ?? (await getLocale());
+
+  // THE `widget` NAMESPACE ALONE, not the whole catalogue, and on this page
+  // that is not a micro-optimisation. The root layout's provider
+  // (src/app/layout.tsx) already serialises the request-locale catalogue into
+  // every response; a second complete `messages/<locale>.json` here would send
+  // the console's strings twice in a payload a radio station serves from its
+  // own website, in an iframe, to a listener on a telephone. MEASURED, not
+  // estimated: `JSON.stringify` of `messages/pt.json` is 139 890 bytes and of
+  // `{ widget: … }` alone is 3 779 -- 2.7% of it. Every other namespace in
+  // that file belongs to screens no widget renders.
+  //
+  // WHAT MAKES THE SLICE SAFE, checked rather than assumed: every component
+  // under this provider -- IdentifyForm, WidgetMenu and everything it opens
+  // (EnterPromotionPanel, RequestSongPanel), Farewell, and both frames --
+  // reads `useTranslations('widget')` and nothing else, and the only shared
+  // components any of them import are Button and Input, neither of which is
+  // translated. `grep -rn "useTranslations\|getTranslations\|useFormatter"
+  // "src/app/(widget)/"` names those files and no other namespace. A
+  // component added under here that reaches for another namespace gets
+  // next-intl's missing-message error, not a silent blank -- so the failure
+  // announces itself and this line is where it is answered.
   const messages = (await import(`../../../../../messages/${widgetLocale}.json`)).default;
+  const widgetMessages = { widget: messages.widget };
 
   // D1: the frame around it, and the frame decides. Resolved via
   // `resolvePresentation` (this file's own header comment) rather than a
@@ -162,12 +194,14 @@ export default async function WidgetPage({
     const farewell = <Farewell exitHref={identity?.whatsappHref ?? null} publicKey={publicKey} />;
     const framed =
       presentation === 'embedded' ? (
-        <EmbeddedFrame>{farewell}</EmbeddedFrame>
+        <EmbeddedFrame lang={widgetLocale}>{farewell}</EmbeddedFrame>
       ) : (
-        <AppFrame identity={identity}>{farewell}</AppFrame>
+        <AppFrame identity={identity} lang={widgetLocale}>
+          {farewell}
+        </AppFrame>
       );
     return (
-      <NextIntlClientProvider locale={widgetLocale} messages={messages}>
+      <NextIntlClientProvider locale={widgetLocale} messages={widgetMessages}>
         {framed}
       </NextIntlClientProvider>
     );
@@ -221,13 +255,15 @@ export default async function WidgetPage({
 
   const framed =
     presentation === 'embedded' ? (
-      <EmbeddedFrame>{body}</EmbeddedFrame>
+      <EmbeddedFrame lang={widgetLocale}>{body}</EmbeddedFrame>
     ) : (
-      <AppFrame identity={identity}>{body}</AppFrame>
+      <AppFrame identity={identity} lang={widgetLocale}>
+        {body}
+      </AppFrame>
     );
 
   return (
-    <NextIntlClientProvider locale={widgetLocale} messages={messages}>
+    <NextIntlClientProvider locale={widgetLocale} messages={widgetMessages}>
       {framed}
     </NextIntlClientProvider>
   );

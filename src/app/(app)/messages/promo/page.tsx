@@ -77,7 +77,26 @@ export default async function SystemMessagesPage({
       listSystemMessages(selected.id),
       canManageTemplates(supabase, selected.id),
       getServiceHashtags(selected.id),
-      getListenerLocale(selected.id),
+      // CAUGHT ON ITS OWN, so one absent column cannot take the whole screen
+      // down. `getListenerLocale` selects `companies.listener_locale`, which
+      // 0265 adds — and this project has shipped application code ahead of its
+      // migrations three times already (Blocks 13a, 17b and 17c, counted by
+      // docs/WIDGET.md §13). On a deployment where 0265 has not landed,
+      // PostgREST answers `42703` for that column, and the shared `catch`
+      // below would replace the ten system texts and both service hashtags
+      // with an error page — none of which depend on it. `null` is a value
+      // this screen already renders correctly — the card's own
+      // "follow the visitor's browser" — so the new card degrades to its
+      // default and the rest of the screen is untouched. The same tolerance
+      // `readSteps` gives an absent `prompt` and `installationContext` gives a
+      // locale this deployment no longer serves.
+      getListenerLocale(selected.id).catch((cause) => {
+        logger.warn(
+          { err: cause, companyId: selected.id },
+          'could not read the listener locale; falling back to the ordinary resolution',
+        );
+        return null;
+      }),
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the system messages');

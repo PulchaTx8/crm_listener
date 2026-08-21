@@ -1,10 +1,11 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/input';
 import { saveListenerLocaleAction, type ListenerLocaleState } from './actions';
+import { nextShowSavedConfirmation } from './hashtag-fields';
 
 const INITIAL: ListenerLocaleState = { status: 'idle' };
 
@@ -34,6 +35,25 @@ export function ListenerLanguage({
 }) {
   const t = useTranslations('templates');
   const [state, action, pending] = useActionState(saveListenerLocaleAction, INITIAL);
+  const [showSaved, setShowSaved] = useState(false);
+
+  // THE SAME CONFIRMATION THE CARD ABOVE SHOWS, and by the same rule rather
+  // than a second copy of it: `nextShowSavedConfirmation` (hashtag-fields.tsx)
+  // carries the finding that a save must win over a prior edit, which is the
+  // bug that made that card's own confirmation unreachable. Two cards on one
+  // screen answering "did my save land?" differently is how one of them rots.
+  //
+  // WHY ANYTHING IS NEEDED AT ALL, since the form re-keys on `locale`: the
+  // remount only reseeds the <select>, and an operator re-saving the language
+  // the Station already has changes no value, so nothing on screen moves. That
+  // is precisely the case that reads as a dead button — the sibling's own
+  // header records that the key remount alone was not visible feedback.
+  useEffect(() => {
+    if (state.status === 'saved') {
+      setShowSaved((previous) => nextShowSavedConfirmation(previous, 'saved'));
+    }
+  }, [state]);
+
   const disabled = pending || !manage;
 
   return (
@@ -72,6 +92,10 @@ export function ListenerLanguage({
           disabled={disabled}
           className="max-w-xs"
           data-testid="listener-locale-select"
+          // The other half of the sibling's rule: a confirmation must not
+          // outlive the value it confirmed, or it reads as "this new choice is
+          // saved" over a choice nobody has submitted yet.
+          onChange={() => setShowSaved((previous) => nextShowSavedConfirmation(previous, 'edited'))}
         >
           <option value="">{t('listenerLanguageSystem')}</option>
           <option value="pt">Português</option>
@@ -83,6 +107,17 @@ export function ListenerLanguage({
           <Button type="submit" size="sm" disabled={disabled} data-testid="listener-language-save">
             {pending ? t('saving') : t('save')}
           </Button>
+          {showSaved && (
+            // `hashtagsSaved`, the sibling's key, rather than a second one:
+            // its value is the bare word "Saved" in all three catalogues and
+            // both cards confirm the same act. A duplicate key with an
+            // identical value is a translation free to drift apart for no
+            // reason. Its NAME is the accident -- it was written when only
+            // the hashtag card confirmed anything.
+            <span className="text-sm text-muted-foreground" data-testid="listener-language-saved">
+              {t('hashtagsSaved')}
+            </span>
+          )}
         </div>
       </form>
 
