@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { SYSTEM_MESSAGE_DEFAULTS } from '@/lib/conversation/engine';
 import type { SystemMessageKey } from '@/lib/conversation/engine';
+import { AVAILABLE_LOCALES } from '@/i18n/locales';
 import type { Enums } from '@/lib/supabase/database.types';
 import {
   CAMPAIGN_RESOLVABLE,
@@ -154,6 +155,29 @@ export const serviceHashtagsFormSchema = z
     }
   });
 export type ServiceHashtagsFormInput = z.infer<typeof serviceHashtagsFormSchema>;
+
+/**
+ * Block 30d (D6). The Station's own language for what its LISTENERS read.
+ *
+ * '' IS A THIRD VALID STATE, not a shape error, the same reason hashtagField
+ * above accepts it: it clears the choice back to the ordinary widget
+ * resolution -- set_listener_locale's own rule, where nullif folds '' to NULL
+ * before the door's language check runs.
+ *
+ * BUILT OFF AVAILABLE_LOCALES rather than a fourth hard-coded list: the CHECK
+ * (companies_listener_locale_supported, 0265), the door's own validation, and
+ * this schema must never disagree about which catalogues exist, and
+ * AVAILABLE_LOCALES is the one place that set is already written down.
+ */
+export const listenerLocaleFormSchema = z.object({
+  companyId: z.string().uuid(),
+  locale: z
+    .string()
+    .refine((v) => v === '' || (AVAILABLE_LOCALES as readonly string[]).includes(v), {
+      message: 'Choose a supported language.',
+    }),
+});
+export type ListenerLocaleFormInput = z.infer<typeof listenerLocaleFormSchema>;
 
 /** The highest `{{n}}` a body actually uses — 0 for an approved fixed-text template. */
 export function countPlaceholders(body: string): number {

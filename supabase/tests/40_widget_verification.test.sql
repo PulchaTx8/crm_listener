@@ -57,9 +57,12 @@ select throws_ok($$
   '23514', null, 'a six-digit code written where a sha256 belongs is refused');
 
 -- The Edge middleware asks this, with the anon key, on a document request.
+-- listenerLocale is Block 30d's key (0265); every company this file seeds is
+-- silent on it, so every literal below carries null -- the value a Station
+-- that never chose a listener language answers with.
 select is(
   public.widget_frame_context('pw_enabledkey012345678901'),
-  jsonb_build_object('found', true, 'origins', jsonb_build_array('https://radio.com.br')),
+  jsonb_build_object('found', true, 'origins', jsonb_build_array('https://radio.com.br'), 'listenerLocale', null),
   'an enabled key answers with its origins');
 
 -- THE REFUSAL IS THE DEFAULT BRANCH. A disabled installation, an unknown key
@@ -67,12 +70,12 @@ select is(
 -- into frame-ancestors 'none' plus a 404.
 select is(
   public.widget_frame_context('pw_disabledkey01234567890'),
-  jsonb_build_object('found', false, 'origins', '[]'::jsonb),
+  jsonb_build_object('found', false, 'origins', '[]'::jsonb, 'listenerLocale', null),
   'a disabled installation answers as if it did not exist');
 
 select is(
   public.widget_frame_context('pw_nosuchkey0123456789012'),
-  jsonb_build_object('found', false, 'origins', '[]'::jsonb),
+  jsonb_build_object('found', false, 'origins', '[]'::jsonb, 'listenerLocale', null),
   'and so does a key nobody ever issued');
 
 -- D5 rejected a session table because it would carry a retention obligation.
@@ -316,7 +319,7 @@ values
 
 select is(
   public.widget_frame_context('pw_archivedkey01234567890'),
-  jsonb_build_object('found', false, 'origins', '[]'::jsonb),
+  jsonb_build_object('found', false, 'origins', '[]'::jsonb, 'listenerLocale', null),
   'and so does an archived installation, enabled though it still reads');
 
 -- ---------------------------------------------------------------------------
@@ -340,7 +343,7 @@ update public.companies
 
 select is(
   public.widget_frame_context('pw_enabledkey012345678901'),
-  jsonb_build_object('found', false, 'origins', '[]'::jsonb),
+  jsonb_build_object('found', false, 'origins', '[]'::jsonb, 'listenerLocale', null),
   'a suspended Station stops being framable, with no installation edit at all');
 
 -- THE ONE THAT COSTS MONEY. widget_request_code is the endpoint whose own
@@ -386,7 +389,7 @@ update public.organizations
 
 select is(
   public.widget_frame_context('pw_enabledkey012345678901'),
-  jsonb_build_object('found', false, 'origins', '[]'::jsonb),
+  jsonb_build_object('found', false, 'origins', '[]'::jsonb, 'listenerLocale', null),
   'a blocked Organization stops its Stations being framed');
 
 select is(

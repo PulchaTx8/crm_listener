@@ -17,6 +17,7 @@ import { SYSTEM_MESSAGE_KEYS } from '@/schemas/templates';
 import type {
   ArchiveTemplateInput,
   ClearSystemMessageInput,
+  ListenerLocaleFormInput,
   MarketingTemplateInput,
   ServiceHashtagsFormInput,
   SystemMessageFormInput,
@@ -198,6 +199,53 @@ export async function setServiceHashtags(
     p_company_id: input.companyId,
     p_music: input.music,
     p_service: input.service,
+  });
+  if (error) throw mapTemplateError(error.code, error.message);
+}
+
+// ---------------------------------------------------------------------------
+// Block 30d, item 2 (D6, D7). The Station's own language for its listeners.
+// ---------------------------------------------------------------------------
+
+/**
+ * `companies.listener_locale` itself, read through the caller's own session
+ * rather than an RPC: unlike `widget_installations`, `companies` carries an
+ * ordinary RLS select policy (`companies_select_org_member`, 0021), so there
+ * is no door here to mirror the way `getServiceHashtags` mirrors
+ * `service_hashtags_for` — this column needs no SECURITY DEFINER wrapper to
+ * be readable by a Station's own member.
+ */
+export async function getListenerLocale(companyId: string): Promise<string | null> {
+  const supabase = await createUserClient();
+  const { data, error } = await supabase
+    .from('companies')
+    .select('listener_locale')
+    .eq('id', companyId)
+    .single();
+  if (error) throw mapTemplateError(error.code, error.message);
+  return data.listener_locale;
+}
+
+/**
+ * Sets the language this Station's widget renders in, through
+ * `set_listener_locale` (0265). An empty string clears the choice back to
+ * NULL — the door's own rule, not repeated here, the same shape
+ * `setServiceHashtags` above leaves to `set_service_hashtags`. Refuses with
+ * `42501` (no `templates.manage`) or `22023` (a language with no catalogue).
+ *
+ * NO `P0002` HERE, unlike `setServiceHashtags`: `set_listener_locale` raises
+ * none, because a Station always exists — `has_permission` already refused
+ * any `p_company_id` the caller does not hold `templates.manage` at, so the
+ * door's own `UPDATE` always has a row to match, unlike the hashtag door's
+ * write onto a `widget_installations` row a Station may not have.
+ */
+export async function setListenerLocale(
+  input: ListenerLocaleFormInput,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('set_listener_locale', {
+    p_company_id: input.companyId,
+    p_locale: input.locale,
   });
   if (error) throw mapTemplateError(error.code, error.message);
 }

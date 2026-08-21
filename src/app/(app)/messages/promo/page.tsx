@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger';
 import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { getServiceHashtags, listSystemMessages } from '@/services/templates';
+import { getListenerLocale, getServiceHashtags, listSystemMessages } from '@/services/templates';
 import type { ServiceHashtags, SystemMessageRow } from '@/services/templates';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
@@ -14,6 +14,7 @@ import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-
 import { canManageTemplates } from '../permissions';
 import { describeTemplateReadError } from '../errors';
 import { HashtagFields } from './hashtag-fields';
+import { ListenerLanguage } from './listener-language';
 import { SystemMessageList } from './system-message-list';
 
 // Renders from the caller's session cookies and a live per-Station permission
@@ -70,11 +71,13 @@ export default async function SystemMessagesPage({
   let rows: SystemMessageRow[];
   let manage: boolean;
   let hashtags: ServiceHashtags;
+  let listenerLocale: string | null;
   try {
-    [rows, manage, hashtags] = await Promise.all([
+    [rows, manage, hashtags, listenerLocale] = await Promise.all([
       listSystemMessages(selected.id),
       canManageTemplates(supabase, selected.id),
       getServiceHashtags(selected.id),
+      getListenerLocale(selected.id),
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the system messages');
@@ -132,6 +135,8 @@ export default async function SystemMessagesPage({
       )}
 
       <HashtagFields companyId={selected.id} hashtags={hashtags} manage={manage} />
+
+      <ListenerLanguage companyId={selected.id} locale={listenerLocale} manage={manage} />
 
       {/*
         Said on the screen rather than only in the runbook: these ten bodies are

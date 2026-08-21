@@ -321,6 +321,7 @@ export type Database = {
           instagram_url: string | null
           latitude: number | null
           legal_name: string | null
+          listener_locale: string | null
           longitude: number | null
           municipal_registration: string | null
           name: string
@@ -363,6 +364,7 @@ export type Database = {
           instagram_url?: string | null
           latitude?: number | null
           legal_name?: string | null
+          listener_locale?: string | null
           longitude?: number | null
           municipal_registration?: string | null
           name: string
@@ -405,6 +407,7 @@ export type Database = {
           instagram_url?: string | null
           latitude?: number | null
           legal_name?: string | null
+          listener_locale?: string | null
           longitude?: number | null
           municipal_registration?: string | null
           name?: string
@@ -4751,6 +4754,14 @@ export type Database = {
       }
       consume_widget_link: { Args: { p_code: string }; Returns: Json }
       country_alpha2: { Args: { p_input: string }; Returns: string }
+      country_phone_rule: {
+        Args: { p_alpha2: string }
+        Returns: {
+          calling_code: string
+          national_max: number
+          national_min: number
+        }[]
+      }
       create_album: {
         Args: {
           p_company_id: string
@@ -5125,6 +5136,10 @@ export type Database = {
       ingest_whatsapp_event: {
         Args: { p_event_id: string; p_window_seconds?: number }
         Returns: Json
+      }
+      international_phone: {
+        Args: { p_country: string; p_phone: string }
+        Returns: string
       }
       is_company_member: { Args: { p_company_id: string }; Returns: boolean }
       is_member_blocked: {
@@ -6154,6 +6169,10 @@ export type Database = {
       }
       set_company_thumb: {
         Args: { p_company_id: string; p_url?: string }
+        Returns: undefined
+      }
+      set_listener_locale: {
+        Args: { p_company_id: string; p_locale: string }
         Returns: undefined
       }
       set_prize_photo: {
