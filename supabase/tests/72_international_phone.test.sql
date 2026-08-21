@@ -1,5 +1,5 @@
 begin;
-select plan(13);
+select plan(15);
 
 -- The ordinary Brazilian mobile, typed as an operator types it.
 select is(public.international_phone('(11) 99999-8888', 'BR'), '+5511999998888',
@@ -40,40 +40,95 @@ select is(public.international_phone(null, 'BR'), null,
 select is(public.international_phone('não é telefone', 'BR'), null,
   'text with no digits is null, exactly as normalize_phone answers');
 
--- 0261. Every Station that predates the column has a country, so the doors can
--- prefix. Asserted as "none left without one" rather than as a count, which
--- would go stale the first time a Station is created.
-select is((select count(*) from public.companies where country is null), 0::bigint,
-  'no Station is left without a country');
+-- 0261/0262 fixture. An organization-scoped Station whose country predates
+-- the column (0213), and a listener under it stored in the local form --
+-- 0262's own comment names the WhatsApp door as the one path that converts an
+-- inbound number to that form before resolving the listener. Seeded here,
+-- inside this test's own transaction, rather than read off the shared
+-- companies/members tables: this project's local test database carries no
+-- global seed (no supabase/seed.sql), so a count taken over those tables
+-- holds vacuously over zero rows -- true with the repair applied and equally
+-- true without it, which asserts nothing. These four assertions instead seed
+-- a row known to need the repair and check what the repair actually did to it.
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-000000000721', 'Org 72');
+insert into public.companies (id, organization_id, name, country) values
+  ('00000000-0000-0000-0000-000000000722', '00000000-0000-0000-0000-000000000721', 'Station 72', null);
+insert into public.members (id, organization_id, phone) values
+  ('00000000-0000-0000-0000-000000000723', '00000000-0000-0000-0000-000000000721', '11999998888');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-000000000723', '00000000-0000-0000-0000-000000000722', '00000000-0000-0000-0000-000000000721');
 
--- 0262. The repair is expressed as a property, not as a row count: after it,
--- no member carries a phone that international_phone would still change.
---
--- COMPARED AGAINST `phone`, NOT `phone_normalized`. The function answers the
--- display form (with its leading plus) and phone_normalized is digits only, so
--- comparing against the generated column would report every correctly repaired
--- row as still needing repair -- a predicate that never settles.
+-- 0261, applied verbatim.
+update public.companies
+   set country = 'BR'
+ where country is null;
+
 select is(
-  (select count(*)
-     from public.members m
-     join public.member_company_links l on l.member_id = m.id
-     join public.companies c on c.id = l.company_id
-    where m.phone is not null
-      and public.international_phone(m.phone, c.country) is distinct from m.phone),
-  0::bigint,
-  'no member is left in a form the sanitation would change');
+  (select country from public.companies where id = '00000000-0000-0000-0000-000000000722'),
+  'BR', 'the repair backfills the missing country to BR');
 
--- Re-running the repair changes nothing, which is what makes it safe to ship
--- twice (a migration re-applied by hand after a failed deploy is ordinary here).
-select lives_ok($$
+-- 0262, applied verbatim.
+--
+-- COMPARED AGAINST `m.phone`, NOT `m.phone_normalized`. The function answers
+-- the display form (with its leading plus) and phone_normalized is digits
+-- only, so comparing against the generated column would report an already-
+-- repaired row as still needing repair -- a predicate that never settles.
+update public.members m
+   set phone = public.international_phone(m.phone, c.country)
+  from public.member_company_links l
+  join public.companies c on c.id = l.company_id
+ where l.member_id = m.id
+   and m.phone is not null
+   and public.international_phone(m.phone, c.country) is distinct from m.phone;
+
+select is(
+  (select phone from public.members where id = '00000000-0000-0000-0000-000000000723'),
+  '+5511999998888', 'the repair rewrites the local form to the international one');
+
+-- phone_normalized is GENERATED from phone (0031) and is what
+-- members_phone_unique actually dedupes on -- asserted on its own because a
+-- repair that wrote the right display form but left this column stale would
+-- still misfile the listener, and the assertion above would not catch it.
+select is(
+  (select phone_normalized from public.members where id = '00000000-0000-0000-0000-000000000723'),
+  '5511999998888', 'phone_normalized regenerates from the repaired phone, plus stripped');
+
+-- Re-running the repair over an already-repaired row changes nothing, which
+-- is what makes it safe to ship twice (a migration re-applied by hand after a
+-- failed deploy is ordinary here).
+--
+-- ROW COUNT, CAPTURED VIA GET DIAGNOSTICS, ALONGSIDE THE VALUE CHECK BELOW.
+-- international_phone is idempotent (asserted above), so a predicate that
+-- wrongly re-matched an already-repaired row (comparing against
+-- phone_normalized rather than phone -- the mistake this file's own comment
+-- warns about) would still write back the SAME value, and a check on phone
+-- alone would not see the difference. What changes is whether the row was
+-- matched at all: the correct predicate excludes it, so the second UPDATE
+-- touches zero rows. xmin was tried first and rejected for this same reason
+-- 12b_deadline_sweep.test.sql gives it up for -- it does not reliably tell
+-- "untouched" apart from "touched with the same value" either.
+do $$
+declare
+  v_row_count integer;
+begin
   update public.members m
      set phone = public.international_phone(m.phone, c.country)
     from public.member_company_links l
     join public.companies c on c.id = l.company_id
    where l.member_id = m.id
      and m.phone is not null
-     and public.international_phone(m.phone, c.country) is distinct from m.phone
-$$, 'the repair is re-runnable and finds nothing to do');
+     and public.international_phone(m.phone, c.country) is distinct from m.phone;
+  get diagnostics v_row_count = row_count;
+  create temporary table t72_second_run as select v_row_count as row_count;
+end $$;
+
+select is((select row_count from t72_second_run), 0,
+  'the second application matches zero rows -- the predicate excludes an already-repaired one rather than merely rewriting it');
+
+select is(
+  (select phone from public.members where id = '00000000-0000-0000-0000-000000000723'),
+  '+5511999998888', 'the second application leaves the already-repaired phone unchanged');
 
 select * from finish();
 rollback;
