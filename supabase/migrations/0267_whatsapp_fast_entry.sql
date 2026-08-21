@@ -150,8 +150,10 @@ begin
       -- companies.timezone is NOT NULL with a default of 'America/Sao_Paulo'
       -- and NO validity CHECK, add_company (0017) is the only function that
       -- writes it and inserts p_timezone raw, and addStationAction
-      -- (admin/organizations/actions.ts) passes String(formData.get('timezone'))
-      -- straight to that RPC with no zod parse. No RENDERED form carries the
+      -- (admin/organizations/actions.ts) passes
+      -- String(formData.get('timezone') || 'America/Sao_Paulo') straight to
+      -- that RPC with no zod parse -- the fallback decides what an ABSENT
+      -- field becomes and validates nothing about a field that is present. No RENDERED form carries the
       -- field -- station-form.tsx says name, timezone and status are
       -- deliberately absent -- so every Station created through a screen gets
       -- the default; but the door accepts whatever a platform admin posts, and
@@ -288,7 +290,7 @@ comment on function public.whatsapp_reply_body(uuid, uuid, text) is
 -- 3. The door.
 --
 -- THE BODY BELOW IS 0179'S, dumped with pg_get_functiondef and confirmed
--- byte-identical to that migration's text before anything was changed. Four
+-- byte-identical to that migration's text before anything was changed. Five
 -- things changed in it and nothing else did:
 --
 --   1. the listener is registered under international_phone's answer, and the
@@ -422,22 +424,39 @@ begin
   -- WAS DOING TWO JOBS AND ADVERTISED ONE: v_install is resolved through a
   -- join carrying c.deleted_at is null, c.status = 'active' and
   -- o.suspended_at is null, so until this migration a suspended Station or a
-  -- blocked Organization could not reach anything past that gate. Moving the
-  -- fast path above it (fix round 1) kept the first job and silently dropped
-  -- the second, and the bypass was real: a suspended Station answered
-  -- `recorded`, wrote the participation and enqueued the confirmation.
-  -- Nothing the fast path calls reads either column, so nothing downstream
-  -- would have caught it -- and 0164 calls this the ENDPOINT THAT SPENDS
-  -- MONEY, because every send past here bills the Station whose subscription
-  -- lapsed.
+  -- blocked Organization could not reach anything PAST THAT GATE. Past that
+  -- gate, and no further back: the pre-check branch above it has recorded a
+  -- participation and enqueued a reply at a suspended Station since 0179, and
+  -- still does -- see this file's report, which names the one clause that
+  -- would close it. What follows is about the fast path only.
+  --
+  -- Moving the fast path above the gate (fix round 1) kept the first job and
+  -- silently dropped the second, and the bypass was real: a suspended Station
+  -- answered `recorded`, wrote the participation and enqueued the
+  -- confirmation. None of the three columns is read by anything the fast path
+  -- calls, so nothing downstream would have caught it.
+  --
+  -- THE ANALOGY, NOT A QUOTATION: 0164 applies "THIS IS THE ENDPOINT THAT
+  -- SPENDS MONEY" to widget_request_code, its Door 2, whose own comment coins
+  -- the phrase. This door is a different one, and the economics are the same
+  -- shape -- every send past here makes Meta bill the Station whose
+  -- subscription lapsed, which is what 0164's header calls "the same class of
+  -- door with the same consequence, plus a bill".
   --
   -- READ ON ITS OWN rather than joined into the integration select above,
   -- because PL/pgSQL refuses `select i.*, c.country into v_integ, v_country`
   -- outright: "record variable cannot be part of multiple-item INTO list" --
-  -- the same refusal widget_verify_code (0263) records for its own row. The
-  -- organizations join is the one v_install already makes, restated here
-  -- rather than inferred, so the two cannot come to disagree about what a
-  -- live tenant is.
+  -- the same refusal widget_verify_code (0263) records for its own row.
+  --
+  -- THE ORGANIZATIONS JOIN REACHES THE SAME ROW v_install's does, by a
+  -- different path: that one joins o.id = w.organization_id, off the
+  -- installation, and this one joins o.id = c.organization_id, off the
+  -- Station. They cannot disagree because widget_installations_company_org_fk
+  -- is composite -- FOREIGN KEY (company_id, organization_id) REFERENCES
+  -- companies(id, organization_id) -- so an installation's organization_id is
+  -- always its own company's. The constraint is what makes this equivalent,
+  -- not the shape of the two queries, and a schema that dropped it would need
+  -- this comment reread.
   select c.country,
          c.deleted_at is null and c.status = 'active' and o.suspended_at is null
     into v_country, v_tenant_live
@@ -743,8 +762,12 @@ begin
   -- enqueue_whatsapp_outbound and finish_whatsapp_event, and NOT ONE OF THEM
   -- READS widget_installations -- which is the claim that matters and the one
   -- that was checked, `prosrc like '%widget_installation%'` over all five
-  -- (their transitive callees, participation_status_for, apply_member_link and
-  -- apply_member_creation, were checked the same way). The tables they do read
+  -- (participation_status_for, apply_member_link and apply_member_creation
+  -- were checked the same way -- not because this branch reaches them, which
+  -- it does not: the door calls all three ABOVE it, on the way here. They are
+  -- in the check because a listener arriving at this branch has already been
+  -- through them, so an installation read hiding in one of them would be an
+  -- installation read on this path). The tables they do read
   -- are promotions, companies, message_templates, participations,
   -- member_company_links, integrations, webhook_events and audit_logs among
   -- others; that list is illustrative and a future edit need not keep it
@@ -774,20 +797,35 @@ begin
   -- this branch would otherwise have escaped. That gate resolves v_install
   -- through a join carrying c.deleted_at is null, c.status = 'active' and
   -- o.suspended_at is null, so before fix round 1 a suspended Station or a
-  -- blocked Organization could not reach any yes at all on this path. Sitting
-  -- above the gate, this branch has to ask the question itself -- and it was
-  -- PROVED it does not inherit it: a suspended Station with a live, ruled,
-  -- nothing-left-to-ask promotion answered `recorded`, wrote the participation
-  -- and enqueued the confirmation. Nothing this branch calls reads either
-  -- column (checked in pg_proc.prosrc), so no function downstream would have
-  -- refused it either.
+  -- blocked Organization could not reach anything PAST THAT GATE.
+  --
+  -- PAST THAT GATE IS THE WHOLE OF THE CLAIM, and this comment said "any yes
+  -- at all" until fix round 3 corrected it. The pre-check branch sits ABOVE
+  -- both gates and always has (0179): at a suspended Station it still records
+  -- a participation and still enqueues a reply, and so does the member
+  -- resolution above it, which links a listener into a blocked Organization.
+  -- Neither is this task's to close -- the report says what closing them would
+  -- cost and which lines change -- but a reader must not be told this path was
+  -- ever fully protected. It was protected past that gate.
+  --
+  -- Sitting above the gate, this branch has to ask the question itself -- and
+  -- it was PROVED it does not inherit it: a suspended Station with a live,
+  -- ruled, nothing-left-to-ask promotion answered `recorded`, wrote the
+  -- participation and enqueued the confirmation. None of the three columns is
+  -- read by anything this branch calls (checked in pg_proc.prosrc), so no
+  -- function downstream would have refused it either.
   --
   -- coalesce(..., false), because a Station whose Organization row the join
   -- above could not match answers null, and a null tenant is not a live one.
-  -- FALSE HERE MEANS FALL THROUGH, never a new outcome: a suspended tenant
-  -- drops to the no_installation gate below and finishes exactly as it did
-  -- before this branch existed, because that same join answers it no
-  -- installation.
+  -- FALSE HERE MEANS FALL THROUGH, never an outcome of its own: a suspended
+  -- tenant drops past this branch and finishes on one of the two gates, which
+  -- is where it finished before this branch existed. WHICH of the two can
+  -- differ, and only in one case: a suspended Station whose promotion ALSO has
+  -- no rules text answered no_installation under 0179 and answers no_rules
+  -- now, because fix round 1 put no_rules first. Both are silent to the
+  -- listener and both write nothing; the outcome an operator reads changes,
+  -- and this file's own no_rules comment says why that is the better of the
+  -- two answers.
   if v_promo.id is not null
      and coalesce(v_tenant_live, false)
      and not exists (
@@ -894,7 +932,7 @@ revoke execute on function public.ingest_whatsapp_event(uuid, integer) from publ
 grant execute on function public.ingest_whatsapp_event(uuid, integer) to service_role;
 
 comment on function public.ingest_whatsapp_event(uuid, integer) is
-  'The bot''s door, and since Block 19a it answers with a LINK rather than opening a conversation. It claims the event FOR UPDATE SKIP LOCKED, resolves the Station and the hashtag, and matches it in ONE order: the Station''s live, uncancelled promotions first (D3), then its music_hashtag, then its service_hashtag -- first match wins, because a promotion''s tag is the specific word and the Station''s two are the general ones. v_install is resolved through the SAME join companies/organizations that mint_widget_link and widget_link_send_context use (0164, 0181): a suspended Station or a blocked Organization answers as no installation at all, everywhere in this block, not just downstream of here. THAT GATE WAS DOING TWO JOBS AND ADVERTISED ONE, and 0267''s fix round 1 nearly cost the second: it refuses a link that could not be minted, AND it was the only thing on the promotion path enforcing tenant liveness, because the three columns live in its join rather than in a test of their own. Moving the fast path above it took the first job with it and left the second behind -- proved live, a suspended Station answering `recorded`, writing the participation and enqueueing the send, on the path 0164 calls THE ENDPOINT THAT SPENDS MONEY. So the statement that reads this Station''s country now reads c.deleted_at, c.status and o.suspended_at beside it, and the fast path is gated on all three: a suspended tenant falls through to the same no_installation it always answered. The claim above is true again, and it is now true by a test rather than by an accident of ordering. Past that point the listener is resolved or registered through the CANONICAL-THEN-LOCAL lookup pair 0267 put in place of 0070''s local-then-delivered one -- this door registers under international_phone''s answer now, like every other door that writes a telephone number (D4, item 1b), and searches whatsapp_local_phone''s answer second for the listeners it registered before that -- with 0070''s unique_violation race unchanged beside it, and THEN, before rules is ever consulted: an attempt that could not become a VALID entry is recorded and answered exactly as 5a did, because a repeat or a spent ceiling is a fact about a message this Station received (0054, 4c) and has nothing to do with whether a promotion has rules text yet -- checking rules ahead of this would answer somebody who has already used their chances with silence, and their attempt would never reach the reports an operator reads (fix round 1). Only once the listener is confirmed able to enter does a matched promotion with no rules text finish as no_rules -- silently (D4): rules are the consent the web screen writes, and web_enabled is deliberately not tested, because sending the hashtag already is asking to take part. THE GATE ORDER IS no_rules, THEN THE FAST PATH, THEN no_installation, and 0267''s fix round 1 put it that way round: rules gate BOTH ways of saying yes, because the fast path takes an entry with no screen and no click and there is no later door to catch a promotion nobody has written rules for, while no_installation guards only the LINK -- it exists because widget_link_send_context cannot mint one without an installation, and nothing on the fast path calls it (checked against pg_proc.prosrc: no function that path reaches reads widget_installations). Gating an entry that needs no widget behind a widget would have killed this path at every freshly provisioned Station, since every Station starts with no installation -- creating one is a separate console act (0159). One observable consequence: a Station with no installation AND no rules text now answers no_rules where it answered no_installation before. MUSIC and MENU need no equivalent of the no_installation gate: their match is structurally impossible without v_install''s own columns populated, so an absent, disabled or now-dark Station''s general hashtag falls straight to the diagnostic branch and finishes no_promotion, silently, exactly as a promotion hashtag with no live installation now also does under its own name. A matched promotion that leaves NOTHING TO ASK OF THIS LISTENER -- no field and no question in the step list, recomputed here and consent never counted -- is entered on the spot and answered {outcome: recorded} with the participation''s status, its reply enqueued through whatsapp_reply_envelope (0267, D8 and D9), which is also how the pre-check''s reply is enqueued now; the test is on the PAIR, so a newcomer at a promotion with no quiz still gets the link, fills the form once, and enters immediately ever after. Anything else hands back {outcome: link, purpose, promotion_id, member_id, ...} for the caller to mint a code and send, and NEVER {outcome: conversation} -- this function starts no conversation any more. TWO PATHS LEAVE THE EVENT PROCESSING -- that one, and a message with no hashtag, which may be an answer to a question the bot asked and can only be told apart by looking in the conversation store the caller owns. Both are finished by the caller, through finish_whatsapp_turn for the no-hashtag path and by whatever Task 5 closes the link path with. That keeps the INBOUND arm of reclaim_stale_whatsapp_claims load-bearing: a worker that dies mid-decision leaves a claimed row that only the reclaim frees, five minutes later.';
+  'The bot''s door, and since Block 19a it answers with a LINK rather than opening a conversation. It claims the event FOR UPDATE SKIP LOCKED, resolves the Station and the hashtag, and matches it in ONE order: the Station''s live, uncancelled promotions first (D3), then its music_hashtag, then its service_hashtag -- first match wins, because a promotion''s tag is the specific word and the Station''s two are the general ones. v_install is resolved through the SAME join companies/organizations that mint_widget_link and widget_link_send_context use (0164, 0181): a suspended Station or a blocked Organization answers as no installation at all, everywhere in this block, not just downstream of here. THAT GATE WAS DOING TWO JOBS AND ADVERTISED ONE, and 0267''s fix round 1 nearly cost the second: it refuses a link that could not be minted, AND it was the only thing enforcing tenant liveness ON EVERYTHING PAST IT, because the three columns live in its join rather than in a test of their own. Past it, and not before it: the pre-check branch and the member resolution both sit ABOVE both gates and have since 0179, so a suspended Station still records a participation, still enqueues a reply and still links a listener into a blocked Organization -- older than this block, not closed by it, and written up in the task report with the lines that would change. Moving the fast path above the gate took the first job with it and left the second behind -- proved live, a suspended Station answering `recorded`, writing the participation and enqueueing the send. 0164 applies "THIS IS THE ENDPOINT THAT SPENDS MONEY" to widget_request_code rather than to this door, and the analogy is exact even though the citation would not be: 0164''s own header calls the widget "the same class of door with the same consequence, plus a bill", and a send from here bills the same lapsed Station the same way. So the statement that reads this Station''s country now reads c.deleted_at, c.status and o.suspended_at beside it, and the fast path is gated on all three: a suspended tenant falls through to the same no_installation it always answered. The claim above is true again, and it is now true by a test rather than by an accident of ordering. Past that point the listener is resolved or registered through the CANONICAL-THEN-LOCAL lookup pair 0267 put in place of 0070''s local-then-delivered one -- this door registers under international_phone''s answer now, like every other door that writes a telephone number (D4, item 1b), and searches whatsapp_local_phone''s answer second for the listeners it registered before that -- with 0070''s unique_violation race unchanged beside it, and THEN, before rules is ever consulted: an attempt that could not become a VALID entry is recorded and answered exactly as 5a did, because a repeat or a spent ceiling is a fact about a message this Station received (0054, 4c) and has nothing to do with whether a promotion has rules text yet -- checking rules ahead of this would answer somebody who has already used their chances with silence, and their attempt would never reach the reports an operator reads (fix round 1). Only once the listener is confirmed able to enter does a matched promotion with no rules text finish as no_rules -- silently (D4): rules are the consent the web screen writes, and web_enabled is deliberately not tested, because sending the hashtag already is asking to take part. THE GATE ORDER IS no_rules, THEN THE FAST PATH, THEN no_installation, and 0267''s fix round 1 put it that way round: rules gate BOTH ways of saying yes, because the fast path takes an entry with no screen and no click and there is no later door to catch a promotion nobody has written rules for, while no_installation guards only the LINK -- it exists because widget_link_send_context cannot mint one without an installation, and nothing on the fast path calls it (checked against pg_proc.prosrc: no function that path reaches reads widget_installations). Gating an entry that needs no widget behind a widget would have killed this path at every freshly provisioned Station, since every Station starts with no installation -- creating one is a separate console act (0159). One observable consequence: a Station with no installation AND no rules text now answers no_rules where it answered no_installation before. MUSIC and MENU need no equivalent of the no_installation gate: their match is structurally impossible without v_install''s own columns populated, so an absent, disabled or now-dark Station''s general hashtag falls straight to the diagnostic branch and finishes no_promotion, silently, exactly as a promotion hashtag with no live installation now also does under its own name. A matched promotion that leaves NOTHING TO ASK OF THIS LISTENER -- no field and no question in the step list, recomputed here and consent never counted -- is entered on the spot and answered {outcome: recorded} with the participation''s status, its reply enqueued through whatsapp_reply_envelope (0267, D8 and D9), which is also how the pre-check''s reply is enqueued now; the test is on the PAIR, so a newcomer at a promotion with no quiz still gets the link, fills the form once, and enters immediately ever after. Anything else hands back {outcome: link, purpose, promotion_id, member_id, ...} for the caller to mint a code and send, and NEVER {outcome: conversation} -- this function starts no conversation any more. TWO PATHS LEAVE THE EVENT PROCESSING -- that one, and a message with no hashtag, which may be an answer to a question the bot asked and can only be told apart by looking in the conversation store the caller owns. Both are finished by the caller, through finish_whatsapp_turn for the no-hashtag path and by whatever Task 5 closes the link path with. That keeps the INBOUND arm of reclaim_stale_whatsapp_claims load-bearing: a worker that dies mid-decision leaves a claimed row that only the reclaim frees, five minutes later.';
 
 -- ---------------------------------------------------------------------------
 -- 4. Three comments that this migration made false, in the doors 0263 wrote

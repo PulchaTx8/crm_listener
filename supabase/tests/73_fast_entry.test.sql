@@ -1,5 +1,5 @@
 begin;
-select plan(30);
+select plan(35);
 
 -- Block 30d, item 14 (D8, D9) and the last door of item 1b (D4).
 --
@@ -28,11 +28,17 @@ select plan(30);
 -- Station nobody has switched the widget on for (0159): the fast path sits
 -- ABOVE the no_installation gate, so B ENTERS a listener with nothing left to
 -- answer and still falls to that gate for one who needs the widget. C is
--- suspended and D's Organization is blocked -- the tenant-liveness pair, which
--- that same gate used to enforce for the whole promotion path by resolving
--- v_install through a join on c.status, c.deleted_at and o.suspended_at. With
--- the fast path above the gate, this file is what stops that enforcement
--- leaving with it.
+-- suspended, D's Organization is blocked and E is soft-deleted -- the three
+-- columns of tenant liveness, which that same gate used to enforce for
+-- EVERYTHING PAST IT by resolving v_install through a join on c.status,
+-- c.deleted_at and o.suspended_at. Past it, and not before it: the pre-check
+-- branch above both gates has recorded participations and enqueued replies at
+-- suspended Stations since 0179 and still does, which is older than this block
+-- and not what these cases are about. With the fast path above the gate, this
+-- file is what stops the enforcement PAST the gate leaving with it.
+--
+-- F carries a timezone that is not a zone, which is the other way a reply can
+-- destroy the entry it confirms.
 --
 -- country = 'BR' on every one of them. Without it international_phone returns
 -- the digits unchanged (0260) and assertion 17 -- the canonical-phone check,
@@ -63,10 +69,26 @@ insert into public.companies (id, organization_id, name, timezone, country, stat
   -- the one that counts.
   ('00000000-0000-0000-0000-0000000030c1', '00000000-0000-0000-0000-0000000030f0',
    'Station C (suspended)', 'America/Sao_Paulo', 'BR', 'suspended'),
-  -- ACTIVE ITSELF, but its Organization is blocked -- the other half of the
-  -- pair the no_installation join enforces.
+  -- ACTIVE ITSELF, but its Organization is blocked -- the second column the
+  -- no_installation join enforces.
   ('00000000-0000-0000-0000-0000000030c2', '00000000-0000-0000-0000-0000000030b0',
-   'Station D (active, blocked Organization)', 'America/Sao_Paulo', 'BR', 'active');
+   'Station D (active, blocked Organization)', 'America/Sao_Paulo', 'BR', 'active'),
+  -- SOFT-DELETED, which is the third. Archived and never emptied: the rest of
+  -- the row stays exactly as a live Station's.
+  ('00000000-0000-0000-0000-0000000030c5', '00000000-0000-0000-0000-0000000030f0',
+   'Station E (soft-deleted)', 'America/Sao_Paulo', 'BR', 'active'),
+  -- A TIMEZONE THAT IS NOT A ZONE. companies.timezone is NOT NULL with no
+  -- validity CHECK, and add_company (0017) inserts p_timezone raw, so this row
+  -- is one add_company call away from existing in production. `at time zone`
+  -- answers such a string with 22023 -- the same sqlstate, in the same
+  -- transaction, as the variable-count refusal the envelope pre-validates
+  -- against.
+  ('00000000-0000-0000-0000-0000000030c7', '00000000-0000-0000-0000-0000000030f0',
+   'Station F (broken timezone)', 'Nowhere/Nowhere', 'BR', 'active');
+
+update public.companies
+   set deleted_at = now()
+ where id = '00000000-0000-0000-0000-0000000030c5';
 
 insert into public.widget_installations
   (id, organization_id, company_id, public_key, enabled)
@@ -84,7 +106,11 @@ values
   ('00000000-0000-0000-0000-0000000030f0', '00000000-0000-0000-0000-0000000030c1',
    'WHATSAPP', '303030303030303', true),
   ('00000000-0000-0000-0000-0000000030b0', '00000000-0000-0000-0000-0000000030c2',
-   'WHATSAPP', '303030303030304', true);
+   'WHATSAPP', '303030303030304', true),
+  ('00000000-0000-0000-0000-0000000030f0', '00000000-0000-0000-0000-0000000030c5',
+   'WHATSAPP', '303030303030305', true),
+  ('00000000-0000-0000-0000-0000000030f0', '00000000-0000-0000-0000-0000000030c7',
+   'WHATSAPP', '303030303030306', true);
 
 -- Promo Rapida asks for full_name and NOTHING ELSE -- no questions at all, so
 -- the step list for a listener who has a name is consent and nothing more.
@@ -126,8 +152,23 @@ values
   ('00000000-0000-0000-0000-0000000030c4', '00000000-0000-0000-0000-0000000030b0',
    '00000000-0000-0000-0000-0000000030c2', 'Promo da Org Bloqueada',
    now() - interval '1 day', now() + interval '30 days',
-   true, '#BLOQUEADA', 'Regulamento da promo da Org bloqueada.', '{}');
+   true, '#BLOQUEADA', 'Regulamento da promo da Org bloqueada.', '{}'),
+  ('00000000-0000-0000-0000-0000000030c6', '00000000-0000-0000-0000-0000000030f0',
+   '00000000-0000-0000-0000-0000000030c5', 'Promo da Station Apagada',
+   now() - interval '1 day', now() + interval '30 days',
+   true, '#APAGADA', 'Regulamento da promo da Station apagada.', '{}'),
+  -- Station F's promotion is REPEATABLE with an interval, because TOO_SOON is
+  -- the only reply that renders a clock and therefore the only one that can
+  -- meet a broken timezone.
+  ('00000000-0000-0000-0000-0000000030c8', '00000000-0000-0000-0000-0000000030f0',
+   '00000000-0000-0000-0000-0000000030c7', 'Promo do Fuso Quebrado',
+   now() - interval '1 day', now() + interval '30 days',
+   true, '#FUSOQUEBRADO', 'Regulamento da promo do fuso quebrado.', '{}');
 
+update public.promotions
+   set allow_multiple_entries = true,
+       min_hours_between_entries = 6
+ where id = '00000000-0000-0000-0000-0000000030c8';
 -- The two numbers, set in an UPDATE rather than in the INSERT above only so
 -- this comment sits beside them: promotions_repetition_shape and
 -- promotions_entry_ceiling_shape both demand allow_multiple_entries, so a
@@ -153,6 +194,22 @@ insert into public.members (id, organization_id, full_name, phone) values
    'Ouvinte Legado',   '11930000003'),
   ('00000000-0000-0000-0000-0000000030fe', '00000000-0000-0000-0000-0000000030f0',
    'Ouvinte Template', '+5511930000004');
+
+-- The entry the clock measures from, and the link apply_participation demands
+-- of any listener a Station records (its own comment: the composite key would
+-- refuse one this Station is not linked to anyway). Written directly, the way
+-- 06_whatsapp seeds the entry its own TOO_SOON case measures from.
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000030f3', '00000000-0000-0000-0000-0000000030c7',
+   '00000000-0000-0000-0000-0000000030f0');
+
+insert into public.participations
+  (promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+values
+  ('00000000-0000-0000-0000-0000000030c8', '00000000-0000-0000-0000-0000000030f3',
+   '00000000-0000-0000-0000-0000000030f0', '00000000-0000-0000-0000-0000000030c7',
+   true, 'VALID', 'WHATSAPP', now());
 
 -- ---------------------------------------------------------------------------
 -- The helper. One message end to end, with the event id named by the caller so
@@ -307,25 +364,35 @@ select is(
   'but a listener with a field still to fill needs the widget, and without an installation that Station still finishes under its own name');
 
 -- ---------------------------------------------------------------------------
--- 12-15. TENANT LIVENESS, and this is the case fix round 1 broke and fix round
+-- 12-16. TENANT LIVENESS, and this is the case fix round 1 broke and fix round
 --        2 restores. Until the fast path moved, the no_installation gate was
---        the ONLY thing enforcing it on the promotion path: v_install is
---        resolved through a join carrying c.deleted_at is null,
---        c.status = 'active' and o.suspended_at is null, so a suspended
---        Station or a blocked Organization could not reach any yes at all.
---        The gate advertised one job and did two; moving the fast path above
---        it took the first and left the second.
+--        the only thing enforcing it PAST ITSELF: v_install is resolved
+--        through a join carrying c.deleted_at is null, c.status = 'active' and
+--        o.suspended_at is null, so a suspended Station or a blocked
+--        Organization could not reach anything past that gate. The gate
+--        advertised one job and did two; moving the fast path above it took
+--        the first and left the second.
+--
+--        PAST THAT GATE IS THE WHOLE CLAIM. An earlier version of this comment
+--        said such a tenant "could not reach any yes at all", and that was
+--        false in both directions of time: the pre-check branch sits ABOVE both
+--        gates (0179) and records a participation and enqueues a reply at a
+--        suspended Station today, exactly as it did before this block. These
+--        cases pin the fast path, which is what this task moved.
 --
 --        The bypass was real, not theoretical: with the fast path ungated, a
 --        suspended Station answered `recorded`, wrote the participation AND
---        enqueued the confirmation -- on the path 0164's own comment calls
---        "THE ENDPOINT THAT SPENDS MONEY", because every send past it bills
---        the Station whose subscription lapsed.
+--        enqueued the confirmation. 0164 gives the phrase "THIS IS THE ENDPOINT
+--        THAT SPENDS MONEY" to widget_request_code and not to this door, so
+--        what carries over is the economics and not the citation: a send from
+--        here bills the lapsed Station the same way, which is what 0164's own
+--        header means by "the same class of door with the same consequence,
+--        plus a bill".
 --
---        Both halves of the pair are pinned, because the fast path now tests
---        all three columns itself and a test of one proves nothing about the
---        others. The outbox assertion is deliberate: an entry written and no
---        message sent would still be a bill this Station must not receive.
+--        ALL THREE COLUMNS, one case each, because the fast path tests all
+--        three itself and a test of one proves nothing about the others. The
+--        outbox assertion is deliberate: an entry written and no message sent
+--        would still be a bill this Station must not receive.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.ingest('00000000-0000-0000-0000-0000000030eb', 'wamid.FAST-11',
@@ -349,7 +416,13 @@ select is(
   pg_temp.ingest('00000000-0000-0000-0000-0000000030ec', 'wamid.FAST-12',
                  '5511930000001', '#BLOQUEADA', '303030303030304') ->> 'outcome',
   'no_installation',
-  'and a BLOCKED Organization answers the same for a Station of its own that is active: all three columns of the liveness join are tested, not just the Station''s status');
+  'and a BLOCKED Organization answers the same for a Station of its own that is active: o.suspended_at is tested, not just the Station''s own status');
+
+select is(
+  pg_temp.ingest('00000000-0000-0000-0000-0000000030ed', 'wamid.FAST-13',
+                 '5511930000001', '#APAGADA', '303030303030305') ->> 'outcome',
+  'no_installation',
+  'and a SOFT-DELETED Station answers the same: c.deleted_at is the third column of the join, and until this case nothing here tested it');
 
 -- ---------------------------------------------------------------------------
 -- 16-17. D4, the last door of item 1b. A number nobody knows: the listener the
@@ -520,6 +593,59 @@ select is(
     '00000000-0000-0000-0000-0000000030f2', '00000000-0000-0000-0000-0000000030f3', 'VALID'),
   'Pronto! Você está participando de Promo Rapida. Boa sorte!',
   'whatsapp_reply_body still answers the sentence, and never a template, however many are registered');
+
+-- ---------------------------------------------------------------------------
+-- 32-35. THE TIMEZONE GUARD, which shipped in fix round 2 with nothing able to
+--        break it. This is that case.
+--
+--        Station F's timezone is 'Nowhere/Nowhere'. The listener already has a
+--        VALID entry minutes old on a promotion with a six-hour interval, so
+--        the pre-check answers TOO_SOON, apply_participation writes the
+--        attempt, and only THEN does the envelope render the next chance --
+--        `to_char((last + interval) at time zone v_timezone, 'HH24:MI')`, which
+--        answers 22023 for a string that is not a zone.
+--
+--        WITHOUT THE HANDLER the raise propagates out of ingest_whatsapp_event,
+--        the whole transaction rolls back, and the TOO_SOON row this door had
+--        already written disappears -- the reply destroying the entry it exists
+--        to describe, which is exactly what D9 promises cannot happen and
+--        exactly what the variable-count pre-validation prevents on the other
+--        side. Assertion 33 is the one that says the entry survived.
+--
+--        A PARTICIPATION_TOO_SOON TEMPLATE IS REGISTERED AT THIS STATION on
+--        purpose: the degraded sentence carries no time, so it carries no
+--        variable list, so assertion 35 shows it going out as a session message
+--        even though a registration exists. The two halves of D9's rule meeting
+--        in one reply.
+-- ---------------------------------------------------------------------------
+insert into public.message_templates
+  (organization_id, company_id, purpose, name, language, body, channel, internal_name)
+values
+  ('00000000-0000-0000-0000-0000000030f0', '00000000-0000-0000-0000-0000000030c7',
+   'PARTICIPATION_TOO_SOON', 'cedo_demais_fuso', 'pt_BR',
+   'Calma! Em {{1}} sua próxima chance é às {{2}}.', 'WHATSAPP', 'Cedo demais fuso');
+
+select is(
+  pg_temp.ingest('00000000-0000-0000-0000-0000000030ee', 'wamid.FAST-14',
+                 '5511930000001', '#FUSOQUEBRADO', '303030303030306') ->> 'status',
+  'TOO_SOON',
+  'a Station whose timezone is not a zone still answers, instead of raising out of the door');
+
+select is(
+  (select count(*) from public.participations
+    where promotion_id = '00000000-0000-0000-0000-0000000030c8'),
+  2::bigint,
+  'and the entry SURVIVES its own reply: the seeded VALID one and the TOO_SOON this message wrote, neither rolled back by rendering a clock in a zone that does not exist');
+
+select is(
+  (select body from pg_temp.confirmation('wamid.FAST-14')),
+  'Você já participou há pouco. Tente novamente mais tarde.',
+  'and the sentence degrades to the branch that needs no time at all, which 0062 already wrote for a next chance that cannot be computed');
+
+select is(
+  (select template_name from pg_temp.confirmation('wamid.FAST-14')),
+  null,
+  'and it goes as a session message THOUGH A TOO_SOON TEMPLATE IS REGISTERED HERE: no time means no {{2}}, and a template that cannot be filled is not chosen');
 
 select * from finish();
 rollback;
