@@ -443,13 +443,33 @@ test('a hashtag becomes a link, the link identifies, and the widget answers the 
     // else: the member id on the request matches the one the hashtag
     // resolved to, read back independently by phone rather than trusted
     // from the widget's own screen.
+    //
+    // READ UNDER BOTH SPELLINGS, and that is this assertion's second job since
+    // Block 30d's D4. The bot registered a listener under
+    // whatsapp_local_phone's answer -- the LOCAL form, `11...` -- until 0267
+    // wired it to international_phone like every other door that writes a
+    // telephone number, so `members.phone_normalized` holds the DELIVERED
+    // digits now. Querying both is what keeps "exactly one" meaning what it
+    // says: the split D4 exists to end is one person arriving as two rows, one
+    // per spelling, and a lookup naming a single spelling cannot see it.
     const { data: listenerRows, error: listenerError } = await admin
       .from('members')
-      .select('id')
+      .select('id, phone_normalized')
       .eq('organization_id', organizationId)
-      .eq('phone_normalized', JOURNEY_LOCAL_PHONE);
+      .in('phone_normalized', [JOURNEY_DELIVERED_PHONE, JOURNEY_LOCAL_PHONE]);
     if (listenerError) throw new Error(`could not read the listener back: ${listenerError.message}`);
-    expect(listenerRows, 'exactly one member for the phone that sent the hashtag').toHaveLength(1);
+    expect(
+      listenerRows,
+      'exactly one member for the phone that sent the hashtag, counting both spellings',
+    ).toHaveLength(1);
+
+    // AND IT IS STORED CANONICALLY. Asserted on its own line rather than left
+    // implicit in the query: reverting 0267's member resolution to
+    // whatsapp_local_phone leaves exactly one row as well, under `11...`, so
+    // the count above would still pass and this is the line that would not.
+    // It is the only e2e assertion anywhere that reads phone_normalized, which
+    // makes it the whole of D4's browser-level proof.
+    expect(listenerRows![0]!.phone_normalized).toBe(JOURNEY_DELIVERED_PHONE);
     expect(request0!.member_id).toBe(listenerRows![0]!.id);
   });
 
