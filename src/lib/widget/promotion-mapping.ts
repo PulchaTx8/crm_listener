@@ -238,6 +238,29 @@ export function screensFor(steps: WidgetStep[]): WidgetStep[][] {
 }
 
 /**
+ * Whether this promotion asks this listener nothing at all.
+ *
+ * Block 30d, D8 and D10. Consent is not counted: by the owner's ruling of
+ * 2026-08-21 the rules screen does not appear on this path, and the door
+ * records the consent from the act of entering instead. Which is also why
+ * this is not `screensFor(steps).length === 1` written another way round --
+ * that reads as an opinion about layout, and this is a question about what is
+ * being asked.
+ *
+ * A COURTESY, NEVER A GUARD -- the same standing `firstUnansweredScreen` has.
+ * `widget_enter_promotion` recomputes the step list and remains the only
+ * authority on what a promotion asks; this function decides which screen a
+ * browser draws, and a disagreement between the two shows up as a refusal the
+ * panel already renders rather than as an entry nobody checked. Answering true
+ * where the door disagrees costs a `missing_answers` the panel has a sentence
+ * for; answering false where the door agrees costs a consent screen the
+ * listener can still tick.
+ */
+export function needsNoWalk(steps: WidgetStep[]): boolean {
+  return !steps.some((step) => step.kind === 'field' || step.kind === 'question');
+}
+
+/**
  * The first screen still holding a step with nothing in it, or null.
  *
  * Block 20a, D4. `missing_answers` says something was skipped and not which

@@ -1,7 +1,7 @@
 begin;
-select plan(35);
+select plan(39);
 
--- Block 30d, item 14 (D8, D9) and the last door of item 1b (D4).
+-- Block 30d, item 14 (D8, D9, D10) and the last door of item 1b (D4).
 --
 -- WHAT THIS FILE PINS, and it is three things that meet in one function:
 --
@@ -13,6 +13,14 @@ select plan(35);
 --   3. the reply's envelope: a template when this Station has a live
 --      registration whose body wants exactly the variables the sentence has,
 --      the same sentence as a session message otherwise.
+--
+-- AND THE SAME QUESTION ASKED OF THE OTHER DOOR. Item 14 has a web half:
+-- widget_enter_promotion (0268) takes the entry with no rules screen when the
+-- recomputed step list holds no field and no question, and the `rules` consent
+-- row it writes anyway names the promotion and says which of the two paths
+-- produced it. Those cases are HERE rather than in 42_widget_promotions
+-- because what they check is this file's subject -- an entry that needs no
+-- walk -- while 42's subject is the widget's two doors in general.
 --
 -- AND THE NUMBER THE BOT REGISTERS A LISTENER UNDER, which 0263 left as the
 -- one door still writing whatsapp_local_phone's LOCAL form. It writes
@@ -656,6 +664,79 @@ select is(
   (select template_name from pg_temp.confirmation('wamid.FAST-14')),
   null,
   'and it goes as a session message THOUGH A TOO_SOON TEMPLATE IS REGISTERED HERE: no time means no {{2}}, and a template that cannot be filled is not chosen');
+
+-- ---------------------------------------------------------------------------
+-- THE WEB HALF OF ITEM 14 (D8, D10), AND WHAT ITS CONSENT ROW SAYS.
+--
+-- Its own promotions and its own listeners, deliberately not the ones above:
+-- every listener above has already been entered by a hashtag, and a repeat
+-- would be answered already_entered before a consent row was ever written.
+--
+-- THE TWO PROMOTIONS DIFFER IN ONE THING ONLY -- whether they declare a
+-- requested field -- because that is the whole of what the door tests. The
+-- walked listener carries no full_name, so the field is genuinely asked of
+-- them and genuinely answered in the call; the fast listener is asked nothing
+-- because their promotion declares nothing.
+-- ---------------------------------------------------------------------------
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   web_enabled, rules, requested_fields)
+values
+  ('00000000-0000-0000-0000-0000000030d1', '00000000-0000-0000-0000-0000000030f0',
+   '00000000-0000-0000-0000-0000000030f5', 'Promo Web Que Nao Pergunta',
+   now() - interval '1 day', now() + interval '30 days',
+   true, 'Regulamento da promo web que nao pergunta.', '{}'),
+  ('00000000-0000-0000-0000-0000000030d2', '00000000-0000-0000-0000-0000000030f0',
+   '00000000-0000-0000-0000-0000000030f5', 'Promo Web Que Pergunta',
+   now() - interval '1 day', now() + interval '30 days',
+   true, 'Regulamento da promo web que pergunta.', '{full_name}');
+
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000030d3', '00000000-0000-0000-0000-0000000030f0',
+   'Ouvinte Web Direto', '+5511930000011'),
+  -- NO full_name, which is what makes the promotion above ask them for one:
+  -- whatsapp_conversation_steps asks for every requested field this listener
+  -- has not got, so the walk is a fact about the PAIR and not about the
+  -- promotion.
+  ('00000000-0000-0000-0000-0000000030d4', '00000000-0000-0000-0000-0000000030f0',
+   null,                 '+5511930000012');
+
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000030d3', '00000000-0000-0000-0000-0000000030f5',
+   '00000000-0000-0000-0000-0000000030f0'),
+  ('00000000-0000-0000-0000-0000000030d4', '00000000-0000-0000-0000-0000000030f5',
+   '00000000-0000-0000-0000-0000000030f0');
+
+select is(
+  public.widget_enter_promotion(
+    'pw_30f5000011112222333344', '00000000-0000-0000-0000-0000000030d3',
+    '00000000-0000-0000-0000-0000000030d1', true) ->> 'ok',
+  'true',
+  'the web door enters a listener a promotion asks nothing of, with no field and no answer sent');
+
+select is(
+  (select origin || ' | ' || coalesce(promotion_id::text, 'null')
+     from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000030d3'
+      and consent_type = 'rules'),
+  'web-widget-entry | 00000000-0000-0000-0000-0000000030d1',
+  'and the rules consent it writes names the promotion AND says the entry itself was the agreement');
+
+select is(
+  public.widget_enter_promotion(
+    'pw_30f5000011112222333344', '00000000-0000-0000-0000-0000000030d4',
+    '00000000-0000-0000-0000-0000000030d2', true,
+    '{"full_name": "Ouvinte Web Andarilho"}'::jsonb) ->> 'ok',
+  'true',
+  'a listener with a field still to fill is entered too, once the walk has filled it');
+
+select is(
+  (select origin || ' | ' || coalesce(promotion_id::text, 'null')
+     from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000030d4'
+      and consent_type = 'rules'),
+  'web-widget | 00000000-0000-0000-0000-0000000030d2',
+  'and THAT row names the promotion as well, under the origin a ticked rules screen has always written');
 
 select * from finish();
 rollback;

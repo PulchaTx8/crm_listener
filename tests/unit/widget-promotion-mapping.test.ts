@@ -3,9 +3,11 @@ import {
   decideAutoOpen,
   enterRefusal,
   firstUnansweredScreen,
+  needsNoWalk,
   readSteps,
   screensFor,
   type WidgetPromotion,
+  type WidgetStep,
 } from '@/lib/widget/promotion-mapping';
 
 describe('enterRefusal', () => {
@@ -233,5 +235,39 @@ describe('firstUnansweredScreen', () => {
    */
   it('never points at the consent screen', () => {
     expect(firstUnansweredScreen(screensFor([{ kind: 'consent' }]), {}, {})).toBeNull();
+  });
+});
+
+describe('needsNoWalk', () => {
+  it('is true when consent is the only step left', () => {
+    expect(needsNoWalk([{ kind: 'consent' }])).toBe(true);
+  });
+
+  it('is false when a field is still to fill', () => {
+    expect(needsNoWalk([{ kind: 'consent' }, { kind: 'field', field: 'full_name' }])).toBe(false);
+  });
+
+  it('is false when a question is still to answer', () => {
+    expect(
+      needsNoWalk([
+        { kind: 'consent' },
+        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
+      ]),
+    ).toBe(false);
+  });
+
+  /**
+   * The pair `screensFor` cannot tell apart on its own: a promotion whose walk
+   * is one screen IS a promotion with nothing to ask, so these two functions
+   * have to agree or the panel would draw a screen it also decided to skip.
+   */
+  it('agrees with screensFor about what a one-screen walk means', () => {
+    const nothingToAsk: WidgetStep[] = [{ kind: 'consent' }];
+    expect(screensFor(nothingToAsk)).toHaveLength(1);
+    expect(needsNoWalk(nothingToAsk)).toBe(true);
+
+    const somethingToAsk: WidgetStep[] = [{ kind: 'consent' }, { kind: 'field', field: 'city' }];
+    expect(screensFor(somethingToAsk).length).toBeGreaterThan(1);
+    expect(needsNoWalk(somethingToAsk)).toBe(false);
   });
 });
