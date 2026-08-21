@@ -571,7 +571,7 @@ select is(
 -- hole a second time by hand. It belongs in 03_promotions.test.sql, whose own
 -- header refuses exactly this: the promotion RPCs' reachability is one list in
 -- one place, because splitting it by migration is how two gaps were shipped
--- already. That file's pair now names the seventeen-argument signature, which
+-- already. That file's pair now names the nineteen-argument signature, which
 -- is what makes it fail if the revoke is ever dropped alongside the function.
 
 -- 0055's SECOND drop-and-recreate: promotion_write_error gains a fourth

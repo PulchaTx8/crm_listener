@@ -432,10 +432,10 @@ test('a prize is bought, undone by arithmetic, and left partly reserved for a pr
   // work"). One band is the minimum save_show accepts (D3/D7); its own hours
   // are never exercised by this journey, so a single ordinary weekday
   // suffices.
-  // Catalog, not Audience: Block 27 moved Programmes there on the owner's
+  // Promotions, not Catalog: Block 30c moved Programmes there on the owner's
   // ruling, and a collapsed section renders its links `hidden`, so the click
   // below needs the right section open rather than merely the right link.
-  await openNavSection(ownerPage, 'Catalog');
+  await openNavSection(ownerPage, 'Promotions');
   await ownerPage.getByRole('link', { name: 'Programmes' }).click();
   await expect(ownerPage).toHaveURL(/\/shows/);
 

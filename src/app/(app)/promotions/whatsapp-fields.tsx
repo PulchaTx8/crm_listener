@@ -90,12 +90,39 @@ export function WhatsappFields({
 
       {conversational && (
         <>
-          {/* THE RULES ARE NOT REQUIRED BY THIS FORM, and that is the owner's
-              ruling: a promotion can be marked for the web while somebody is
-              still writing the wording. What it cannot do is appear in the
-              widget with an agreement box above nothing — so the hint below
-              says exactly which half is missing rather than letting an
-              operator wonder why the site shows nothing. */}
+          {/* Item 15. Final review, Important #1: NO `required` here, and
+              that is not an oversight — the earlier `required={conversational}`
+              was both stricter and more silent than the gate it meant to
+              echo, in two different directions.
+
+              STRICTER: 0259's gate (D2) refuses a TRANSITION into
+              door-on/rules-blank, not the STATE — a promotion already
+              door-on with blank rules (reachable since 0171 made rules
+              nullable) stays saveable ON PURPOSE, so an operator correcting a
+              closing date is not held hostage to a text they may not have.
+              `71_promotion_rules_gate.test.sql`'s own `lives_ok` case exists
+              to protect exactly that shape. `required` cannot express a
+              transition — it only ever sees the form in front of it, never
+              whether the row about to be replaced was already in that shape
+              — so it refused the one case the gate design goes out of its
+              way to permit.
+
+              SILENT: this textarea lives inside a `hidden` tab
+              (promotion-record-dialog.tsx), and Save is a button OUTSIDE the
+              `<form>`, wired in only by `form="promotion-record-form"`.
+              Ticking "take part on the website" on the Participation tab,
+              leaving this textarea blank, switching to the Promotion tab to
+              change a date, and pressing Save asked the browser to run
+              constraint validation on a control that was not being rendered
+              — it silently refused to submit, and nothing on screen said why.
+
+              The database is the one boundary here, checked at three levels
+              (0259 itself, its pgTAP, the isolation suite), and its refusal
+              already reaches the operator as a sentence through
+              describePromotionsWriteError. The hint just below already warns
+              them before they save, for the shape the gate actually refuses.
+              A client-side `required` that disagreed with the server in both
+              directions was worse than none. */}
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted-foreground">{t('rules')}</span>
             <textarea
@@ -108,8 +135,8 @@ export function WhatsappFields({
               data-testid="promotion-rules"
             />
             <span className="text-xs text-muted-foreground">
-              {webEnabled && !record?.rules
-                ? t('withoutRulesThisDoesNotAppearOnTheSite')
+              {conversational && !record?.rules
+                ? t('rulesRequiredWhenADoorIsOpen')
                 : t('whatAListenerAgreesToBeforeEntering')}
             </span>
           </label>

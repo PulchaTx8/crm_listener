@@ -75,11 +75,14 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   // shell.ts warns about for icons and labels.
   await expect(audience.getByRole('link', { name: 'Participations' })).toHaveCount(0);
 
-  // Block 27. Programmes LEFT Audience for Catalog on the owner's ruling,
-  // reversing where Block 18 filed it -- so this section is down to the two
-  // screens that are about people. Read off the rendered order rather than
-  // asserted one absence at a time, for the reason the Block 26 comment above
-  // gives: a move that only adds leaves the link rendered twice.
+  // Block 27. Programmes LEFT Audience on the owner's ruling, reversing where
+  // Block 18 filed it -- so this section is down to the two screens that are
+  // about people. WHERE IT WENT has changed since, and twice: Catalog took it in
+  // Block 27 and Promotions in Block 30c. This assertion is indifferent to that,
+  // deliberately -- what it holds Audience to is these two links, whoever ends up
+  // with the third. Read off the rendered order rather than asserted one absence
+  // at a time, for the reason the Block 26 comment above gives: a move that only
+  // adds leaves the link rendered twice.
   const audienceLinks = await audience.getByRole('link').allInnerTexts();
   expect(audienceLinks).toEqual(['Members', 'Requests']);
 
@@ -87,8 +90,20 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   const promotions = page.locator('[data-nav-section="promotions"]');
   // Participations sits BETWEEN Promotions and Pickups — the position is the
   // owner's instruction, not merely the section.
+  //
+  // Block 30c. Programmes ARRIVED here from Catalog on the owner's ruling of
+  // 2026-08-19, and it sits LAST, after Pickups -- shell.ts files it below the
+  // three that were already here rather than beside the promotion it belongs to,
+  // so the position is part of the claim and not an accident of the array.
+  //
+  // THIS ASSERTION IS ONE HALF OF A PAIR. Reading the whole rendered list here
+  // proves the link ARRIVED; only the Catalog list further down proves it LEFT.
+  // A move that merely added would pass a presence check in both places while
+  // rendering one link twice, in two sections -- the exact failure shell.ts
+  // warns about in three separate comments. Change one of the two and the other
+  // has to be read in the same breath.
   const promotionLinks = await promotions.getByRole('link').allInnerTexts();
-  expect(promotionLinks).toEqual(['Promotions', 'Participations', 'Pickups']);
+  expect(promotionLinks).toEqual(['Promotions', 'Participations', 'Pickups', 'Programmes']);
 
   await openNavSection(page, 'Inventory');
   const inventory = page.locator('[data-nav-section="inventory"]');
@@ -105,9 +120,14 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   await openNavSection(page, 'Catalog');
   const catalogue = page.locator('[data-nav-section="catalog"]');
   await expect(catalogue.getByRole('link', { name: 'Requests' })).toHaveCount(0);
-  // Block 27. The owner's order for the whole section, asserted as a list for the
-  // same reason Audience's is: every one of these was already visible before the
-  // reorder, so "it is here" proves nothing about where it is.
+  // Block 27 set the owner's order for this section; Block 30c took Programmes
+  // out of it, on the owner's ruling, and left that order otherwise untouched.
+  // Asserted as a list for the same reason Audience's is: every one of these was
+  // already visible before the reorder, so "it is here" proves nothing about
+  // where it is. As of Block 30c the list does a second job -- it is the only
+  // thing in this suite that proves Programmes LEFT Catalog rather than merely
+  // also appearing under Promotions above, which is the half of that pair a
+  // presence check cannot cover.
   const catalogueLinks = await catalogue.getByRole('link').allInnerTexts();
   expect(catalogueLinks).toEqual([
     'Songs',
@@ -116,7 +136,6 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
     'Songwriters',
     'Genres',
     'Record labels',
-    'Programmes',
     'Maintenance',
   ]);
   await expect(catalogue.getByRole('link', { name: 'Songwriters' })).toHaveAttribute(

@@ -723,3 +723,68 @@ export async function setPromotionPrizeDrawnDirectly(
     );
   }
 }
+
+/**
+ * Inserts a promotion row directly against Postgres, as its superuser — the
+ * same escape hatch seedIntegration uses above, needed here for a reason
+ * specific to Block 30c: create_promotion (0259) now refuses to CREATE a
+ * promotion that is door-on (WhatsApp or web) with blank rules, so the shape
+ * update_promotion's D2 gate must still leave EDITABLE — a promotion that
+ * reached that shape before the gate existed — has no route through any RPC
+ * any more. service_role cannot reach it either: `grant select on
+ * public.promotions to authenticated, service_role` (0044_rls_promotions.sql)
+ * is the only DML grant this schema issues on that table — its own comment
+ * says no table takes an insert, update or delete grant from any role,
+ * service_role included, so every write goes through a SECURITY DEFINER RPC
+ * — so `admin.from('promotions').insert` is refused the same way a caller's
+ * own token would be.
+ *
+ * Bypasses every check create_promotion makes — the Station lookup,
+ * has_permission, the hashtag guards — because it writes the table directly,
+ * which is the point: this fixture has to reach a shape the door itself no
+ * longer allows anyone to reach.
+ */
+export async function seedGrandfatheredPromotion(
+  customer: ProvisionedCustomer,
+  name: string,
+): Promise<string> {
+  const rows = await superuserQuery<{ id: string }>(
+    'seedGrandfatheredPromotion',
+    `insert into public.promotions
+       (organization_id, company_id, name, starts_at, ends_at, web_enabled)
+     values ($1, $2, $3, now() - interval '1 hour', now() + interval '1 day', true)
+     returning id`,
+    [customer.organizationId, customer.companyId, name],
+  );
+  if (rows.length !== 1) {
+    throw new Error(
+      `seedGrandfatheredPromotion: expected to insert exactly one row, got ${rows.length}`,
+    );
+  }
+  return rows[0]!.id;
+}
+
+/**
+ * A live Programme carrying nothing but a name, through the superuser
+ * connection rather than `save_show` (0175): that RPC requires a kind, an age
+ * rating, a start date and at least one band, and a promotion's `showId` test
+ * fixture needs none of that — `shows` itself has no NOT NULL beyond
+ * organization_id/company_id/name (0175's own header: "production already
+ * holds four programmes carrying nothing but a name," the same shape this
+ * seeds). Not through `admin`: `shows` carries no insert grant for any role
+ * (0099 grants select only), the same gap seedGrandfatheredPromotion's own
+ * comment documents for promotions.
+ */
+export async function seedShow(customer: ProvisionedCustomer, name: string): Promise<string> {
+  const rows = await superuserQuery<{ id: string }>(
+    'seedShow',
+    `insert into public.shows (organization_id, company_id, name)
+     values ($1, $2, $3)
+     returning id`,
+    [customer.organizationId, customer.companyId, name],
+  );
+  if (rows.length !== 1) {
+    throw new Error(`seedShow: expected to insert exactly one row, got ${rows.length}`);
+  }
+  return rows[0]!.id;
+}

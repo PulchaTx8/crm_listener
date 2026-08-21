@@ -249,6 +249,77 @@ describe('promotionFormSchema', () => {
     const r = promotionFormSchema.safeParse({ ...whatsapp, requestedFields: ['gender'] });
     expect(r.success).toBe(true);
   });
+
+  /**
+   * Block 30c, §7 of the spec doc. Both fields are new in this block and
+   * neither was covered here when it landed — the final review fix wave adds
+   * what §7 promised.
+   */
+  describe('authorizationCertificate', () => {
+    it('accepts a blank promotion with no certificate at all — it is optional', () => {
+      const r = promotionFormSchema.safeParse(base);
+      expect(r.success).toBe(true);
+      expect(r.success && r.data.authorizationCertificate).toBeUndefined();
+    });
+
+    it("accepts exactly 60 characters, the column's own ceiling", () => {
+      const r = promotionFormSchema.safeParse({
+        ...base,
+        authorizationCertificate: 'A'.repeat(60),
+      });
+      expect(r.success).toBe(true);
+      expect(r.success && r.data.authorizationCertificate).toBe('A'.repeat(60));
+    });
+
+    it('refuses one character past 60, with the sentence naming the limit', () => {
+      const r = promotionFormSchema.safeParse({
+        ...base,
+        authorizationCertificate: 'A'.repeat(61),
+      });
+      expect(r.success).toBe(false);
+      expect(r.error?.issues[0]?.message).toBe(
+        'The certificate number cannot be longer than 60 characters.',
+      );
+    });
+
+    // Trimmed here, in the schema, rather than left for update_promotion's own
+    // btrim to be the only place whitespace-padding disappears — the parsed
+    // VALUE is what promotionRpcArgs sends on, so a schema that validated but
+    // did not trim would post the padding through.
+    it('trims surrounding whitespace before the length is judged', () => {
+      const r = promotionFormSchema.safeParse({
+        ...base,
+        authorizationCertificate: `  SECAP-123  `,
+      });
+      expect(r.success).toBe(true);
+      expect(r.success && r.data.authorizationCertificate).toBe('SECAP-123');
+    });
+  });
+
+  describe('showId', () => {
+    it('accepts a blank promotion with no Programme linked — it is optional', () => {
+      const r = promotionFormSchema.safeParse(base);
+      expect(r.success).toBe(true);
+      expect(r.success && r.data.showId).toBeUndefined();
+    });
+
+    it('accepts a real uuid', () => {
+      const showId = '33333333-3333-3333-3333-333333333333';
+      const r = promotionFormSchema.safeParse({ ...base, showId });
+      expect(r.success).toBe(true);
+      expect(r.success && r.data.showId).toBe(showId);
+    });
+
+    // Only reachable if a stale option list posts an id the combobox never
+    // offered (this field's own comment in schemas/promotions.ts) — pinned
+    // because that comment is what names the message as deliberately worded
+    // like promotionPrizeLinkSchema's prizeId ('Choose a prize.') above.
+    it('refuses a value that is not a uuid, naming it the way prizeId is named', () => {
+      const r = promotionFormSchema.safeParse({ ...base, showId: 'not-a-programme' });
+      expect(r.success).toBe(false);
+      expect(r.error?.issues[0]?.message).toBe('Choose a programme.');
+    });
+  });
 });
 
 describe('questionFormSchema', () => {

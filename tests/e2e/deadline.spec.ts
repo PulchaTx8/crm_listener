@@ -155,7 +155,7 @@ test.beforeAll(async () => {
   // Closed, which is the ordinary case for a draw — the same reason and the
   // same direct connection draw-flow.spec.ts uses for its own promotion:
   // service_role holds no UPDATE on promotions, and update_promotion is a
-  // seventeen-argument door whose whole field set would have to be restated
+  // nineteen-argument door whose whole field set would have to be restated
   // here to move one timestamp.
   const setup = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
   await setup.connect();

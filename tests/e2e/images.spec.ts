@@ -32,6 +32,11 @@ const stationName = `Image Station ${stamp}`;
 
 const promotionName = `Pictured Promo ${stamp}`;
 const prizeName = `Pictured Prize ${stamp}`;
+// Block 30c (0259): create_promotion now refuses a WhatsApp-enabled
+// promotion with blank rules. This spec is about the pictures, not the
+// rules text, so a placeholder rather than anything asserted on — the same
+// idiom whatsapp-entry.spec.ts and widget.spec.ts already use.
+const PROMOTION_RULES = `Regras da promoção com fotos, edição ${stamp}.`;
 
 /**
  * REAL PNG BYTES, not the header-shaped fixtures the unit suite builds.
@@ -137,6 +142,7 @@ test('a promotion and a prize each carry one picture, replaced rather than accum
     p_ends_at: new Date(Date.now() + 30 * DAY).toISOString(),
     p_whatsapp_enabled: true,
     p_hashtag: `#IMG${stamp}`,
+    p_rules: PROMOTION_RULES,
   });
   expect(promoError).toBeNull();
 

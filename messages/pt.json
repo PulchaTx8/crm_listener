@@ -1770,14 +1770,19 @@
     "takePartByWeb": "Participar pelo site",
     "rules": "Regulamento",
     "whatAListenerAgreesToBeforeEntering": "Com o que o ouvinte concorda antes de participar. Aparece no widget acima da caixa de aceite.",
-    "withoutRulesThisDoesNotAppearOnTheSite": "Sem regulamento escrito aqui, esta promoção não aparece no site.",
     "moderationGuidelines": "Diretrizes de moderação",
     "internalOnlyNeverSentToThe": "Somente interno — nunca enviado ao ouvinte. Orienta quem for ler as respostas.",
     "someoneHasAlreadyEnteredThisPromotion": "Alguém já participou desta promoção, então a pergunta em si não pode mais ser alterada — isso deixaria respostas apontando para um texto que ninguém leu.",
     "saveGuidelines": "Salvar diretrizes",
     "theQuestionWasSavedButItsModerationGuidelines": "A pergunta foi salva, mas as diretrizes de moderação não. Edite a pergunta para escrevê-las de novo.",
     "requestedFieldCountry": "País",
-    "requestedFieldGender": "Sexo"
+    "requestedFieldGender": "Sexo",
+    "authorizationCertificate": "Número do certificado de autorização",
+    "optionalAsIssued": "Opcional, exatamente como foi emitido",
+    "programme": "Programa",
+    "noProgramme": "Sem programa",
+    "aProgrammeIsLinkedThisOperatorCannotSeeProgrammes": "Há um Programa vinculado, mas este operador não pode ver Programas.",
+    "rulesRequiredWhenADoorIsOpen": "O regulamento passa a ser obrigatório quando a participação por WhatsApp ou pelo site está ligada."
   },
   "music": {
     "closeRecord": "Fechar ficha",

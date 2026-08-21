@@ -17,7 +17,15 @@ import {
   DEFAULT_QUESTION_MENU_TITLE,
 } from '@/lib/conversation/engine';
 import type { PromotionFormInput } from '@/schemas/promotions';
-import { addCompany, cleanupUsers, grantRoleWith, provisionCustomer, signInAs } from './harness';
+import {
+  addCompany,
+  cleanupUsers,
+  grantRoleWith,
+  provisionCustomer,
+  seedGrandfatheredPromotion,
+  seedShow,
+  signInAs,
+} from './harness';
 import type { ProvisionedCustomer } from './harness';
 
 afterAll(cleanupUsers);
@@ -105,6 +113,10 @@ describe('the promotion record', () => {
         whatsappEnabled: true,
         hashtag: '#EUQUERO',
         requestedFields: ['full_name', 'city'],
+        // Block 30c D2 (0259): create_promotion now refuses a WhatsApp- or
+        // web-enabled promotion with blank rules. Not what this test is
+        // about, so a non-blank placeholder rather than a value asserted on.
+        rules: `Read rules ${label}`,
       });
 
       const ownerToken = await tokenFor(customer.email, customer.password);
@@ -171,14 +183,37 @@ describe('the promotion record', () => {
       const delegate = await grantRoleWith(customer, label, [
         'promotions.create',
         'promotions.view',
+        // D4 (spec doc): shows carries exactly one policy, gated on
+        // music.view, not any promotions.* permission — a promotions-only
+        // delegate reads showId back but gets showName null regardless of
+        // whether the Programme is archived, because shows_select_music_view
+        // (0099) never admits them at all. Granted here so this fixture
+        // proves the embed positively resolves, which is the point of
+        // adding it; the gap itself is D4's own recorded cost, not
+        // something to route around silently.
+        'music.view',
       ]);
       const token = await tokenFor(delegate.email, delegate.password);
+
+      // The create door's own seam for the two new fields (Block 30c):
+      // Task 2's pgTAP proves create_promotion writes both when called
+      // directly, and typecheck cannot catch either being dropped from
+      // promotionRpcArgs — both Args entries are optional, the same shape as
+      // the maxEntriesPerMember mutation this file's own header documents
+      // above. showId also exercises the shows(name, deleted_at) embed's
+      // first positive assertion in this suite: everything else that reads
+      // it either gets null (no Programme) or is this task's own throwaway
+      // verification, never committed.
+      const showId = await seedShow(customer, `Programme ${label}`);
 
       const promotionId = await createPromotion(
         promotionInput(customer.companyId, {
           name: 'Delegate promotion',
           whatsappEnabled: true,
           hashtag: '#DELEGADO',
+          rules: `Create rules ${label}`,
+          authorizationCertificate: `CERT-${label}`,
+          showId,
           // No banner here as of Block 14: it is not a field of this form and
           // create_promotion does not take one. A promotion is born without
           // pictures because neither storage key exists until the row does.
@@ -197,6 +232,10 @@ describe('the promotion record', () => {
       expect(record?.name).toBe('Delegate promotion');
       expect(record?.requestedFields).toEqual(['full_name', 'address', 'city']);
       expect(record?.minHoursBetweenEntries).toBe(24);
+      expect(record?.authorizationCertificate).toBe(`CERT-${label}`);
+      expect(record?.showId).toBe(showId);
+      expect(record?.showName).toBe(`Programme ${label}`);
+      expect(record?.showArchived).toBe(false);
 
       // A PROMOTION IS BORN WITHOUT PICTURES, and this asserts it rather than
       // merely stopping asserting the opposite. Neither storage key exists
@@ -294,7 +333,11 @@ describe('the promotion record', () => {
     it('refuses a hashtag already live in the Station, naming it', async () => {
       const label = `promo-hashtag-${Date.now()}`;
       const customer = await provisionCustomer(label);
-      await createAsOwner(customer, { whatsappEnabled: true, hashtag: '#EUQUERO' });
+      await createAsOwner(customer, {
+        whatsappEnabled: true,
+        hashtag: '#EUQUERO',
+        rules: `Hashtag rules ${label}`,
+      });
 
       const delegate = await grantRoleWith(customer, label, ['promotions.create']);
       const token = await tokenFor(delegate.email, delegate.password);
@@ -307,6 +350,10 @@ describe('the promotion record', () => {
             name: 'Same hashtag',
             whatsappEnabled: true,
             hashtag: '#EUQUERO',
+            // Both promotions need rules now (D2), or the SECOND create would
+            // be refused for blank rules before it ever reached the hashtag
+            // collision this test is actually about.
+            rules: `Hashtag rules ${label}`,
           }),
           token,
         ),
@@ -327,6 +374,7 @@ describe('the promotion record', () => {
         siteIntegrationCode: 4242,
         whatsappEnabled: true,
         hashtag: '#ANTES',
+        rules: `Edit rules ${label}`,
       });
 
       const delegate = await grantRoleWith(customer, label, [
@@ -341,6 +389,10 @@ describe('the promotion record', () => {
           name: 'Edited',
           whatsappEnabled: true,
           hashtag: '#DEPOIS',
+          // Carried on the update too: update_promotion replaces every field
+          // wholesale, so omitting rules here would clear them while WhatsApp
+          // stays on — exactly the transition D2 refuses.
+          rules: `Edit rules ${label}`,
         }),
         token,
       );
@@ -351,6 +403,78 @@ describe('the promotion record', () => {
       // The wholesale replace is the point: a field left out of the submission
       // is cleared, not kept.
       expect(record?.siteIntegrationCode).toBeNull();
+    });
+
+    /**
+     * Final review, Critical #1. The read-side half of the chain the fix in
+     * `promotion-fields.tsx` depends on: `getPromotionRecord`'s `showId` comes
+     * from the promotions row itself (services/promotions.ts:657), never the
+     * `shows(name, deleted_at)` embed `showName` reads through, so a delegate
+     * shows_select_music_view (0099:55-57) empties out of the Programme list
+     * still gets the raw id back. The "registering" test above grants
+     * music.view specifically to prove the embed positively resolves; this
+     * delegate does the opposite on purpose, matching D4's own recorded gap.
+     *
+     * What this does NOT prove: `promotion-fields.tsx`'s `<select>` actually
+     * rendering the id it is given as the selected option — that is a browser
+     * behaviour (a native `<select>` whose `defaultValue` names no option
+     * among its children falls back to the first one, deterministically, with
+     * no JavaScript involved) with no DOM in this suite to observe it against.
+     * `tests/unit/promotion-show-options.test.ts` proves the option list the
+     * component hands that `<select>` instead, as a pure function. What THIS
+     * test proves is the server-side half: the value the fixed combobox
+     * carries forward genuinely is the one this caller was given, and
+     * resubmitting it on an update about something else entirely survives —
+     * neither the read nor the write silently drops it for this permission
+     * shape.
+     *
+     * CONFIRMED BY RUNNING IT, NOT ASSUMED: this assertion passes against
+     * `promotion-fields.tsx` with the fix reverted too, because it never
+     * imports that file -- it calls `updatePromotion` directly with `showId`
+     * already resolved, the same shape the fixed form is now guaranteed to
+     * send, so nothing here forces the browser layer to be right. The one
+     * check that DOES go red on the unfixed file is
+     * `tests/unit/promotion-show-options.test.ts`. Left here anyway because
+     * it is still real coverage of a fact this fix depends on and nothing
+     * else in this suite asserts (D4's gap, above, is read-only) -- but it
+     * is not, on its own, proof that C1 is closed.
+     */
+    it('reads back and preserves show_id for a delegate without music.view, who cannot see Programmes at all', async () => {
+      const label = `promo-edit-show-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const showId = await seedShow(customer, `Programme ${label}`);
+      const promotionId = await createAsOwner(customer, { showId });
+
+      // promotions.edit and promotions.view ONLY — no music.view anywhere in
+      // the role, unlike the "registering" test's delegate above.
+      const delegate = await grantRoleWith(customer, label, [
+        'promotions.edit',
+        'promotions.view',
+      ]);
+      const token = await tokenFor(delegate.email, delegate.password);
+
+      const before = await getPromotionRecord(promotionId, token);
+      expect(before?.showId).toBe(showId);
+      expect(before?.showName).toBeNull();
+
+      // What the fixed form now always resubmits: the id just read back,
+      // carried forward by its ghost <option> even though this caller's own
+      // combobox never listed it as a choice. The date is what is actually
+      // being edited here — the Programme link is not the point of this save,
+      // exactly as C1's own operator-editing-the-closing-date scenario was.
+      await updatePromotion(
+        promotionId,
+        promotionInput(customer.companyId, {
+          name: 'Edited elsewhere',
+          endsAt: new Date(Date.now() + 60 * DAY).toISOString(),
+          showId: before?.showId ?? undefined,
+        }),
+        token,
+      );
+
+      const after = await getPromotionRecord(promotionId, token);
+      expect(after?.showId).toBe(showId);
+      expect(after?.name).toBe('Edited elsewhere');
     });
 
     it('is refused without promotions.edit, and leaves the row alone', async () => {
@@ -785,5 +909,73 @@ describe('the promotion record', () => {
       // Renumbering is deliberately not done: the survivor keeps position 2.
       expect(record?.questions[0]?.position).toBe(2);
     });
+  });
+
+  /**
+   * Block 30c D2. The gate through a real caller, because update_promotion is
+   * SECURITY DEFINER and pgTAP runs as the superuser — the pgTAP proves the
+   * rule, this proves an operator meets it.
+   *
+   * The THIRD case is the one worth the fixture: a promotion already door-on
+   * and rules-blank stays editable. A gate written as a state test rather than
+   * a transition test passes the first two and fails this one, while looking
+   * stricter and therefore better.
+   */
+  it('refuses to open a door with blank rules, and leaves an already-blank promotion editable', async () => {
+    const label = `rules-gate-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await signInAs(customer.email, customer.password);
+
+    const clean = await createAsOwner(customer, { name: `${label} clean` });
+    const opening = await owner.rpc('update_promotion', {
+      p_promotion_id: clean,
+      p_name: `${label} clean`,
+      p_starts_at: new Date(Date.now() - HOUR).toISOString(),
+      p_ends_at: new Date(Date.now() + DAY).toISOString(),
+      p_web_enabled: true,
+      // p_rules OMITTED rather than sent as null: the generated Args type is
+      // `p_rules?: string`, not `string | null` — 0259's `default null` is
+      // what makes the parameter optional, not nullable — so a literal
+      // `null` here fails typecheck rather than expressing "blank". Omitting
+      // it reaches the same place PostgREST-side: the argument is left out
+      // of the call, and the RPC's own `default null` applies, which is the
+      // same "absent, not null" convention promotionRpcArgs documents in
+      // src/services/promotions.ts.
+    });
+    expect(opening.error?.code).toBe('22023');
+    // The sqlstate alone does not distinguish this refusal from update_promotion's
+    // other six 22023 sites (name/dates missing, the two freezes, the two
+    // hashtag collisions — verified by reading every `errcode = '22023'` in
+    // 0259's own body) — none reachable by this fixture today, but the
+    // file's own idiom pins the sentence rather than trust that they never
+    // will be (see the collision test above, and participations.test.ts's
+    // own comment on why sqlstate alone cannot tell a freeze from this gate).
+    expect(opening.error?.message).toContain('needs its rules');
+
+    // The grandfathered shape, seeded past the door through the harness's
+    // superuser connection because the door now refuses to create it, and
+    // service_role has no INSERT grant on promotions to reach it either
+    // (0044_rls_promotions.sql grants it SELECT only).
+    const legacyId = await seedGrandfatheredPromotion(customer, `${label} legacy`);
+
+    const editing = await owner.rpc('update_promotion', {
+      p_promotion_id: legacyId,
+      p_name: `${label} legacy renamed`,
+      p_starts_at: new Date(Date.now() - HOUR).toISOString(),
+      p_ends_at: new Date(Date.now() + 2 * DAY).toISOString(),
+      p_web_enabled: true,
+    });
+    expect(editing.error).toBeNull();
+
+    // `error is null` is not the claim this scenario makes — the freeze case
+    // above spells out why: a refusal written as an early `return` rather
+    // than a `raise` would raise nothing, write nothing, and pass that
+    // assertion too. Only the row can tell "allowed" apart from "swallowed".
+    const { data: renamed } = await owner
+      .from('promotions')
+      .select('name')
+      .eq('id', legacyId)
+      .single();
+    expect(renamed?.name).toBe(`${label} legacy renamed`);
   });
 });

@@ -1103,6 +1103,12 @@ describe("Block 4a's freeze, now that there is something to freeze", () => {
     const promotionId = await promotionAsOwner(customer, {
       p_whatsapp_enabled: true,
       p_hashtag: '#EUQUERO',
+      // Block 30c D2 (0259): create_promotion now refuses a WhatsApp- or
+      // web-enabled promotion with blank rules. Carried on `base` below too,
+      // for the same reason update_promotion's own wholesale replace needs it
+      // repeated on every one of its calls — the freeze this test proves is
+      // otherwise indistinguishable, by sqlstate alone, from the rules gate.
+      p_rules: `Freeze rules ${label}`,
     });
 
     const delegate = await grantRoleWith(customer, label, [
@@ -1121,6 +1127,10 @@ describe("Block 4a's freeze, now that there is something to freeze", () => {
       p_ends_at: ends,
       p_whatsapp_enabled: true,
       p_hashtag: '#EUQUERO',
+      // update_promotion replaces every field wholesale, so leaving this out
+      // would clear the rules on the FIRST call below and trip D2's gate
+      // rather than the freeze this test is about.
+      p_rules: `Freeze rules ${label}`,
     };
 
     // Before anybody enters, the hashtag moves freely.

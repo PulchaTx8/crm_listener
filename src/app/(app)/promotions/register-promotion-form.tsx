@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import type { ShowOption } from '@/services/shows';
 import { createPromotionAction, type PromotionFormState } from './actions';
 import { PromotionFields } from './promotion-fields';
 import { WhatsappFields } from './whatsapp-fields';
@@ -20,12 +21,15 @@ export function RegisterPromotionForm({
   open,
   companyId,
   timeZone,
+  shows,
   onClose,
   onCreated,
 }: {
   open: boolean;
   companyId: string;
   timeZone: string;
+  /** This Station's live Programmes (item 17), read by the page — see PromotionFields' own prop doc. */
+  shows: ShowOption[];
   onClose: () => void;
   onCreated: (promotionId: string) => void;
 }) {
@@ -35,14 +39,30 @@ export function RegisterPromotionForm({
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
   const [webEnabled, setWebEnabled] = useState(false);
   const [repeats, setRepeats] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
-    if (state.status === 'saved' && state.promotionId) onCreated(state.promotionId);
+    if (state.status === 'saved' && state.promotionId) {
+      setDirty(false);
+      onCreated(state.promotionId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
+  /**
+   * Same machinery as PromotionRecordDialog's own `requestClose`: both the
+   * Cancel button and the Dialog's own dismissal (backdrop, Escape) go
+   * through this one function, so neither can skip the confirmation the
+   * other honours.
+   */
+  function requestClose() {
+    if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
+    setDirty(false);
+    onClose();
+  }
+
   return (
-    <Dialog open={open} onClose={onClose} labelledBy={titleId}>
+    <Dialog open={open} onClose={requestClose} labelledBy={titleId}>
       <DialogHeader>
         <DialogTitle id={titleId}>{t('registerAPromotion')}</DialogTitle>
       </DialogHeader>
@@ -57,7 +77,8 @@ export function RegisterPromotionForm({
               disabled={false}
               repeats={repeats}
               onRepeatsChange={setRepeats}
-              onDirty={() => undefined}
+              onDirty={() => setDirty(true)}
+              shows={shows}
             />
 
             <div className="border-t pt-6">
@@ -70,7 +91,7 @@ export function RegisterPromotionForm({
                 onWebEnabledChange={setWebEnabled}
                 onEnabledChange={setWhatsappEnabled}
                 disabled={false}
-                onDirty={() => undefined}
+                onDirty={() => setDirty(true)}
               />
             </div>
           </div>
@@ -82,7 +103,7 @@ export function RegisterPromotionForm({
           )}
         </DialogBody>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={requestClose}>
             {t('cancel')}</Button>
           <Button type="submit" disabled={pending} data-testid="promotion-create-submit">
             {pending ? t('registering') : t('registerAction')}

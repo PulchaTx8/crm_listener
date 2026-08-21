@@ -257,7 +257,7 @@ test('a filtered Requests listing becomes a named fixed send list, proven on scr
   // draw-flow.spec.ts's own preamble reaches for the same connection, but NOT
   // for the same reason (F15): there the table is perfectly readable and it is
   // one UPDATE grant on promotions that is missing, so raw SQL substitutes for
-  // a seventeen-argument door. Here nothing can READ the table at all. Same
+  // a nineteen-argument door. Here nothing can READ the table at all. Same
   // escape hatch, different hole — and calling them identical is how the next
   // reader concludes send_list_members is merely un-writable.
   const sql = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });

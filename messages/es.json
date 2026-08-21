@@ -1770,14 +1770,19 @@
     "takePartByWeb": "Participar por el sitio",
     "rules": "Reglamento",
     "whatAListenerAgreesToBeforeEntering": "Con qué acepta el oyente antes de participar. Aparece en el widget sobre la casilla de aceptación.",
-    "withoutRulesThisDoesNotAppearOnTheSite": "Sin reglamento escrito aquí, esta promoción no aparece en el sitio.",
     "moderationGuidelines": "Pautas de moderación",
     "internalOnlyNeverSentToThe": "Solo interno — nunca se envía al oyente. Orienta a quien lea las respuestas.",
     "someoneHasAlreadyEnteredThisPromotion": "Alguien ya participó en esta promoción, así que la pregunta en sí ya no puede cambiarse — eso dejaría respuestas apuntando a un texto que nadie leyó.",
     "saveGuidelines": "Guardar pautas",
     "theQuestionWasSavedButItsModerationGuidelines": "La pregunta se guardó, pero sus pautas de moderación no. Edita la pregunta para escribirlas de nuevo.",
     "requestedFieldCountry": "País",
-    "requestedFieldGender": "Sexo"
+    "requestedFieldGender": "Sexo",
+    "authorizationCertificate": "Número del certificado de autorización",
+    "optionalAsIssued": "Opcional, tal como fue emitido",
+    "programme": "Programa",
+    "noProgramme": "Sin programa",
+    "aProgrammeIsLinkedThisOperatorCannotSeeProgrammes": "Hay un Programa vinculado, pero este operador no puede ver Programas.",
+    "rulesRequiredWhenADoorIsOpen": "El reglamento es obligatorio cuando la participación por WhatsApp o por el sitio está activada."
   },
   "music": {
     "closeRecord": "Cerrar ficha",

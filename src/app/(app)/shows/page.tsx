@@ -20,7 +20,13 @@ import { parseShowCursor, parseShowListState, showHref } from './list-params';
 import type { ShowSearchParams } from './list-params';
 
 /**
- * Block 18. Programmes, third under Audiência after Ouvintes and Participações.
+ * Block 18. Programmes — now filed under **Promotions**, directly after
+ * Pickups (`src/lib/auth/shell.ts`). Its third section in twelve blocks:
+ * Audience filed it in Block 18, Catalog took it in Block 27, and Block 30c
+ * moved it here, on the owner's ruling of 2026-08-19, because a promotion can
+ * now name the Programme it belongs to. The nav entry's own comment carries
+ * the full history; this header only needs to stop claiming a section the
+ * screen has since left twice.
  *
  * THE SCREEN IS `/music/songs` WITH DIFFERENT COLUMNS, deliberately: the same
  * Station switcher, the same URL-driven filter bar, the same keyset paging and
@@ -30,15 +36,20 @@ import type { ShowSearchParams } from './list-params';
  *
  * THE PERMISSION IS STILL A MUSIC ONE, and that is recorded rather than
  * accidental: `shows` carries exactly one policy, gated on `music.view`, and it
- * has no insert or update policy at all. Moving the screen under Audiência does
- * not move the permission, so a member who administers the audience and holds
- * nothing in music cannot open this.
+ * has no insert or update policy at all. Neither move has ever moved the
+ * permission with it, so a member who administers Promotions today (or,
+ * before Block 27, the audience) and holds nothing in music cannot open this.
+ * Block 30c found a second surface of the identical mismatch: the Programme
+ * combobox on a promotion's own record (`listShowOptions`) is gated the same
+ * way, and reads as an empty list rather than a broken link.
  *
  * A `shows.view` / `shows.manage` pair is not two rows in a table — it is a
  * permissions migration, the roles screen, every seeded role, PERMISSIONS.md,
  * and above all EVERY ROLE A CUSTOMER HAS ALREADY CONFIGURED, none of which
  * would grant it. Shipping this screen behind a permission nobody holds would
- * hide it from everyone. The spec's §5 carries the full reasoning.
+ * hide it from everyone. `docs/PERMISSIONS.md`'s "Programmes are gated on
+ * music" section carries the full reasoning, including why re-gating on a
+ * Promotions permission instead was also rejected.
  */
 export const dynamic = 'force-dynamic';
 

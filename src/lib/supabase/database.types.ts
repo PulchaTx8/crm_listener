@@ -2787,6 +2787,7 @@ export type Database = {
         Row: {
           allow_multiple_entries: boolean
           art_url: string | null
+          authorization_certificate: string | null
           call_to_action: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
@@ -2809,6 +2810,7 @@ export type Database = {
           requested_fields: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer: boolean
           rules: string | null
+          show_id: string | null
           site_integration_code: number | null
           starts_at: string
           thumb_url: string | null
@@ -2821,6 +2823,7 @@ export type Database = {
         Insert: {
           allow_multiple_entries?: boolean
           art_url?: string | null
+          authorization_certificate?: string | null
           call_to_action?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
@@ -2843,6 +2846,7 @@ export type Database = {
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
           rules?: string | null
+          show_id?: string | null
           site_integration_code?: number | null
           starts_at: string
           thumb_url?: string | null
@@ -2855,6 +2859,7 @@ export type Database = {
         Update: {
           allow_multiple_entries?: boolean
           art_url?: string | null
+          authorization_certificate?: string | null
           call_to_action?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
@@ -2877,6 +2882,7 @@ export type Database = {
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
           rules?: string | null
+          show_id?: string | null
           site_integration_code?: number | null
           starts_at?: string
           thumb_url?: string | null
@@ -2900,6 +2906,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotions_show_fk"
+            columns: ["show_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "shows"
+            referencedColumns: ["id", "company_id"]
           },
         ]
       }
@@ -4832,6 +4845,7 @@ export type Database = {
       create_promotion: {
         Args: {
           p_allow_multiple_entries?: boolean
+          p_authorization_certificate?: string
           p_call_to_action?: string
           p_company_id: string
           p_ends_at: string
@@ -4843,6 +4857,7 @@ export type Database = {
           p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           p_require_correct_answer?: boolean
           p_rules?: string
+          p_show_id?: string
           p_site_integration_code?: number
           p_starts_at: string
           p_web_enabled?: boolean
@@ -6328,6 +6343,7 @@ export type Database = {
       update_promotion: {
         Args: {
           p_allow_multiple_entries?: boolean
+          p_authorization_certificate?: string
           p_call_to_action?: string
           p_ends_at: string
           p_hashtag?: string
@@ -6339,6 +6355,7 @@ export type Database = {
           p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           p_require_correct_answer?: boolean
           p_rules?: string
+          p_show_id?: string
           p_site_integration_code?: number
           p_starts_at: string
           p_web_enabled?: boolean

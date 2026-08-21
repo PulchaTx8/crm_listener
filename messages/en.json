@@ -1770,14 +1770,19 @@
     "takePartByWeb": "Take part through the website",
     "rules": "Rules",
     "whatAListenerAgreesToBeforeEntering": "What a listener agrees to before entering. Shown in the widget above the agreement box.",
-    "withoutRulesThisDoesNotAppearOnTheSite": "Without rules written here, this promotion does not appear on the website.",
     "moderationGuidelines": "Moderation guidelines",
     "internalOnlyNeverSentToThe": "Internal only — never sent to the listener. It guides whoever reads the answers.",
     "someoneHasAlreadyEnteredThisPromotion": "Someone has already entered this promotion, so the question itself can no longer be changed — that would leave answers pointing at wording nobody read.",
     "saveGuidelines": "Save guidelines",
     "theQuestionWasSavedButItsModerationGuidelines": "The question was saved, but its moderation guidelines were not. Edit the question to write them again.",
     "requestedFieldCountry": "Country",
-    "requestedFieldGender": "Sex"
+    "requestedFieldGender": "Sex",
+    "authorizationCertificate": "Authorization certificate number",
+    "optionalAsIssued": "Optional, exactly as it was issued",
+    "programme": "Programme",
+    "noProgramme": "No programme",
+    "aProgrammeIsLinkedThisOperatorCannotSeeProgrammes": "A Programme is linked, but this operator cannot see Programmes.",
+    "rulesRequiredWhenADoorIsOpen": "The rules are required once entry by WhatsApp or on the website is on."
   },
   "music": {
     "closeRecord": "Close record",
