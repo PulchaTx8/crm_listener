@@ -716,12 +716,30 @@ select ok(not has_function_privilege('service_role',
 -- leaks nothing: it is the one function in this migration that could be
 -- re-granted without a test going red, and "no exposure today" is a fact about
 -- today rather than a reason to leave a grant untested.
+--
+-- AND THAT IS EXACTLY WHAT IT CAUGHT. 0263 gave whatsapp_local_phone to
+-- `authenticated`, and this assertion is why that had to be an argued decision
+-- rather than a line nobody noticed. The argument: resolve_or_create_member is
+-- the one door in 0263 that is SECURITY INVOKER -- it reads companies under the
+-- caller's own RLS on purpose -- and it now searches whatsapp_local_phone's
+-- answer as well as international_phone's, so that a listener the WhatsApp bot
+-- registered under the local form is found rather than registered a second
+-- time. Running as `authenticated`, it needs the grant; without it the door
+-- raised "permission denied for function whatsapp_local_phone" on every call.
+-- The grant costs nothing: this function reads no table, takes a string and
+-- returns a string, and is immutable.
+--
+-- `anon` and `service_role` STAY REFUSED, and the asymmetry is the point: only
+-- the invoker door needs it. 0263's other callers are SECURITY DEFINER owned by
+-- postgres and reach it as the owner, so a grant to service_role would be a
+-- capability nobody uses -- which is the shape of the trap 0263's own foot
+-- notes for normalize_phone.
 select ok(not has_function_privilege('anon',
             'public.whatsapp_local_phone(text)', 'EXECUTE'),
           'anon may not call whatsapp_local_phone');
-select ok(not has_function_privilege('authenticated',
+select ok(has_function_privilege('authenticated',
             'public.whatsapp_local_phone(text)', 'EXECUTE'),
-          'authenticated may not call whatsapp_local_phone');
+          'authenticated MAY call whatsapp_local_phone -- resolve_or_create_member is SECURITY INVOKER and searches it (0263)');
 select ok(not has_function_privilege('service_role',
             'public.whatsapp_local_phone(text)', 'EXECUTE'),
           'service_role may not call whatsapp_local_phone either');

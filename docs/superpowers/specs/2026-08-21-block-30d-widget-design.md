@@ -143,12 +143,48 @@ one, twice over:
   edited keeps calling it, silently. Any such change must `drop` the old
   signature explicitly and restate every grant (the ACL loss of Block 24).
 
-So `international_phone` is called by each door as the phone enters:
-`widget_verify_code` (live on 0164), `create_member` / `update_member` (live on
-0220), `resolve_or_create_member` (0054) and `import_participations` (live on
-0056) — the manual entry and the spreadsheet, both reached from the
-Participations screen — the API intake (0152), and `withdraw_marketing_by_phone`
-(0231). One function, many call sites, which is what "one function" meant.
+So `international_phone` is called by each door as the phone enters. **`0263`
+wired seven functions**, and the list below is what it actually did rather than
+what this paragraph first predicted:
+
+| Door | Live on | What it sanitises |
+| --- | --- | --- |
+| `widget_request_code` | 0164 | the `widget_verifications` row **and** the number `enqueue_whatsapp_outbound` sends to |
+| `widget_verify_code` | 0164 | the verification-row lookup, the member lookup, the registration |
+| `create_member` | 0220 | the `members` insert |
+| `update_member` | 0220 | the `members` update |
+| `resolve_or_create_member` | 0054 | the lookup and, through `create_member`, the registration |
+| `api_record_music_request` | 0152 | the validity guard, the lookup, the registration |
+| `withdraw_marketing_by_phone` | 0231 | the lookup order only — it writes no telephone number |
+
+**`widget_request_code` was not in this paragraph's first version, and the pair
+cannot be split.** The original ruling was that both widget calls keep the
+number the visitor typed, because the second call matches the verification row
+the first one wrote. That was reversed on 2026-08-21: they *both* canonicalise,
+computing the identical expression from the identical Station country, so the
+row still matches — and asking in one spelling and entering in another, which
+used to answer `no_pending_code`, now resolves to one number. Canonicalising
+either one alone breaks code entry outright.
+
+**`import_participations` (live on 0056) is NOT one of the seven**, though this
+spec first listed it. Its only use of a row's phone is the argument it hands
+`resolve_or_create_member`, which is in the list — so sanitising it too would be
+the same rule written twice, one call apart.
+
+One function, many call sites, which is what "one function" meant.
+
+**And three doors gained a SECOND search rather than a replaced one.**
+`resolve_or_create_member`, `widget_verify_code` and `api_record_music_request`
+look for `international_phone`'s answer and then, if that finds nobody, for
+`whatsapp_local_phone`'s — which is the shape `withdraw_marketing_by_phone`
+already had. That is not caution: the WhatsApp doors below still register
+listeners under the local form, so a canonical-only search would miss the
+listener the bot already knows and register them a second time — the very split
+item 1b exists to stop, arriving from the other direction. The second search is
+*computed*, never the caller's raw argument echoed back: every real caller of
+these doors already posts the international form, so a guard comparing the
+canonical value with the argument would be false and the branch would never run.
+The branches say when they can be deleted.
 
 **The list is derived, not remembered.** `grep -rln "p_phone" supabase/migrations/`
 is what produced it, and the plan re-runs that grep rather than trusting this
@@ -177,9 +213,26 @@ function would change, so a second run is a no-op. `phone_normalized` is
 generated, so the repair writes `phone` and the column follows.
 
 **A Station created after this with no country cannot prefix.** The door stores
-what it was given and logs it rather than refusing: refusing would stop a
-listener registering because an administrator did not fill a select, and the
-value it stores is exactly what it stores today.
+`normalize_phone`'s answer — **the digits, unprefixed and unpunctuated** — and
+does not refuse: refusing would stop a listener registering because an
+administrator did not fill a select, and guessing a calling code would split one
+person into two rows. **Nothing is logged**, and nothing should be: this is the
+function's answer, not a degradation of one, and a log line per registration at
+a Station whose administrator has not filled in a select is noise that would
+never be read. (An earlier draft of this section said the door "stores what it
+was given and logs it". Neither half was true of the code: the digits are not
+what it was given — the punctuation and any leading `+` typed by hand are gone —
+and there is no log call anywhere on the path. `supabase/tests/72_international_phone.test.sql`
+assertion 24 pins the real behaviour.)
+
+**A leading `+` overrides all of this, at any Station.** `international_phone`
+returns a plus-prefixed argument unchanged, before it consults the country at
+all — see 0260's own comment. Without that, the length test decides using the
+*Station's* national range and cannot tell a foreign number from a local one: at
+a Brazilian Station (national 10–11) the eleven-digit `+12125551234` would be
+read as national and rewritten to `+5512125551234`, and because `update_member`
+calls this on every ficha save it would happen again every time an operator
+tried to correct it.
 
 ### D6 — `listener_locale` is named for what it governs
 

@@ -1,5 +1,5 @@
 begin;
-select plan(22);
+select plan(24);
 
 -- The ordinary Brazilian mobile, typed as an operator types it.
 select is(public.international_phone('(11) 99999-8888', 'BR'), '+5511999998888',
@@ -39,6 +39,17 @@ select is(public.international_phone(null, 'BR'), null,
 
 select is(public.international_phone('não é telefone', 'BR'), null,
   'text with no digits is null, exactly as normalize_phone answers');
+
+-- 11: A FOREIGN NUMBER AT A BRAZILIAN STATION, which is the case the length
+-- rule cannot survive on its own. +12125551234 is eleven digits, Brazil's
+-- national range is 10-11, so without the leading-plus branch (0260) the rule
+-- reads a New York number as a Sao Paulo one and answers +5512125551234.
+-- update_member calls this on every ficha save, so that is not a one-off
+-- mangling: it is the same listener's number corrupted afresh every time an
+-- operator tries to correct it, with phone_normalized -- which decides who is
+-- who -- following it each time.
+select is(public.international_phone('+1 212 555 1234', 'BR'), '+12125551234',
+  'a number the caller marked international is left international, whatever the Station');
 
 -- 0261/0262 fixture. An organization-scoped Station whose country predates
 -- the column (0213), and a listener under it stored in the local form --
@@ -154,7 +165,7 @@ select is(
 -- the bot and the spreadsheet spell them. Before 0263 the first call stored
 -- 11988887777 and the second found nothing to resolve, so the Organization
 -- ended the file holding TWO listeners for one person -- which is the defect
--- item 1b exists to close, and what assertion 17 counts.
+-- item 1b exists to close, and what assertion 18 counts.
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-0000000030e1', 'Org 30d');
 -- country 'BR' EXPLICITLY, not left to 0261's backfill: 0261 has already run
@@ -198,7 +209,7 @@ select public.resolve_or_create_member(
 
 reset role;
 
--- 16: phone_normalized, not phone, because that is the column
+-- 17: phone_normalized, not phone, because that is the column
 -- members_phone_unique (0031) dedupes on and therefore the one that decides
 -- whether these two calls describe one person. It drops the plus the door
 -- stores, which is why the expected value carries no plus while
@@ -210,7 +221,7 @@ select is(
   '5511988887777',
   'the manual entry door stores the international form');
 
--- 17: counted over the ORGANIZATION rather than over the phone. A count
+-- 18: counted over the ORGANIZATION rather than over the phone. A count
 -- filtered to phone_normalized = '5511988887777' would answer 1 whether or not
 -- the second call created a second listener, because the second row would
 -- carry the OTHER spelling and fall outside the filter -- an assertion that
@@ -222,7 +233,7 @@ select is(
   1::bigint,
   'the local and international spellings resolve to ONE listener');
 
--- 18: and it is the SAME listener, not merely the same number of them. The id
+-- 19: and it is the SAME listener, not merely the same number of them. The id
 -- is compared rather than the outcome string, because an outcome of 'resolved'
 -- naming a different row would be a worse failure than 'created' and the two
 -- deserve to be told apart by what the assertion prints.
@@ -273,7 +284,7 @@ values
 select public.widget_request_code(
   'pw_phonedoors30d012345678', '11 97777-6666', repeat('e', 64), '246810');
 
--- 19: the row carries the canonical number, not the keystrokes. Before 0263 it
+-- 20: the row carries the canonical number, not the keystrokes. Before 0263 it
 -- held '11 97777-6666'.
 select is(
   (select phone from public.widget_verifications
@@ -282,10 +293,19 @@ select is(
   '+5511977776666',
   'the widget stores the canonical number on the verification row');
 
--- 20: AND THE SAME VALUE IS WHAT WAS SENT TO. This is the assertion that
--- covers the reported harm rather than its cause: outbox_messages.to_phone is
--- what sendTemplate hands Meta, and '11 97777-6666' is not a number Meta can
--- deliver to, so before 0263 this visitor never received a code at all.
+-- 21: AND THE SAME VALUE IS WHAT WAS SENT TO. outbox_messages.to_phone is what
+-- sendTemplate hands Meta, and '11 97777-6666' is not a number Meta can deliver
+-- to -- so a caller posting the local form got a row, an outbox message, an
+-- 'ok', and no code.
+--
+-- NOT A DEFECT THE SHIPPED WIDGET HAS, and saying otherwise was the false
+-- justification this round removed from 0263. composePhone
+-- (src/app/(widget)/w/[publicKey]/identify-form.tsx:41) has posted '+' || digits
+-- since 2026-08-11 and its own comment records that as the fix for exactly this
+-- harm. What this assertion holds is the door's own half of it: widget_verify_code
+-- and widget_request_code are granted to service_role, so the shipped form is not
+-- the only thing that can reach them, and this pins that the door no longer
+-- depends on its caller having got the spelling right.
 select is(
   (select to_phone from public.outbox_messages
     where dedupe_key like '%:widget-verification'
@@ -293,7 +313,7 @@ select is(
   '+5511977776666',
   'and the code is sent to the number WhatsApp can actually reach');
 
--- 21: the ordinary case, which is the one canonicalising the write could have
+-- 22: the ordinary case, which is the one canonicalising the write could have
 -- broken. The browser posts the same string on both calls, both calls compute
 -- the same expression from the same Station's country, so the row still
 -- matches.
@@ -304,7 +324,7 @@ select is(
   'true',
   'and the second call, spelled the same way, still finds that row');
 
--- 22: and the case that never worked. Asking with the local form and entering
+-- 23: and the case that never worked. Asking with the local form and entering
 -- with the international one answered no_pending_code while both sides were
 -- compared raw; one canonical value on both sides is what makes these the same
 -- number.
@@ -317,6 +337,39 @@ select is(
     'Ouvinte Widget 2') ->> 'ok',
   'true',
   'and a visitor who asks in one spelling and enters in the other matches too');
+
+-- 24: A STATION WITH NO COUNTRY, which nothing in supabase/tests/ exercises
+-- any more: file 40's fixtures gained country 'BR' in this same block, and
+-- every Station above carries one. The behaviour is deliberate and is design
+-- D5's, so it is pinned rather than left to be rediscovered -- international_phone
+-- returns normalize_phone's answer, so the door stores the DIGITS, unprefixed
+-- and unpunctuated, and guesses no country code. It does not refuse (that would
+-- stop a listener registering because an administrator left a select empty) and
+-- it does not log (there is nothing exceptional to report: this is the answer,
+-- not a degradation of one).
+--
+-- A second Station in the SAME Organization, so the same operator and role
+-- reach it; members.create is checked per Station, hence the second membership.
+insert into public.companies (id, organization_id, name, country) values
+  ('00000000-0000-0000-0000-0000000030e7', '00000000-0000-0000-0000-0000000030e1',
+   'Station 30d sem pais', null);
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000000030e4', '00000000-0000-0000-0000-0000000030e7',
+   '00000000-0000-0000-0000-0000000030e1', '00000000-0000-0000-0000-0000000030e3');
+
+set local role authenticated;
+create temporary table t30d_nocountry as
+select public.resolve_or_create_member(
+  '00000000-0000-0000-0000-0000000030e7'::uuid,
+  'Ouvinte Sem Pais',
+  '11 95555-4444') as answer;
+reset role;
+
+select is(
+  (select m.phone from public.members m
+    where m.id = ((select answer from t30d_nocountry) ->> 'member_id')::uuid),
+  '11955554444',
+  'a Station with no country stores the digits and guesses no country code');
 
 select * from finish();
 rollback;

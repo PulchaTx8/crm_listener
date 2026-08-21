@@ -10,9 +10,13 @@
 -- widget_verify_code matches that row on the second call. Canonicalising
 -- either one alone breaks code entry outright, so they are adjacent below and
 -- compute the identical expression from the identical Station country. The
--- design originally ruled that this pair should keep the raw value; that
--- ruling was reversed on 2026-08-21, because keeping it meant Meta being asked
--- to deliver to a national number and the visitor never receiving a code.
+-- design originally ruled that this pair should keep the raw value; that ruling
+-- was reversed on 2026-08-21. The reason GIVEN for reversing it -- that a
+-- visitor typing the local form never received a code -- was wrong, and is
+-- corrected at the call site rather than repeated: the widget has composed
+-- '+' || digits since 2026-08-11. What the reversal is actually worth is that
+-- asking in one spelling and entering in another now matches, and that a
+-- service_role caller which is not the shipped form gets the same treatment.
 --
 -- WHY AT THE DOORS AND NOT IN THE SHARED RESOLVER. apply_member_lookup and
 -- find_member_by_identifier (0061) are the single point every one of these
@@ -78,6 +82,7 @@ declare
   v_org     uuid;
   v_country text;
   v_phone   text;
+  v_local   text;
   v_found   jsonb;
   v_id      uuid;
 begin
@@ -100,21 +105,31 @@ begin
   v_found := public.find_member_by_identifier(
     v_org, v_phone, p_email, p_cpf_hash, p_passport);
 
-  -- THE RAW SPELLING IS STILL SEARCHED, SECOND, and this is not belt and
-  -- braces. The WhatsApp bot's own registration (apply_member_creation called
-  -- with whatsapp_local_phone's answer, in ingest_whatsapp_event and
-  -- ingest_link_intent, both live on 0179) still writes the LOCAL form, so a
-  -- listener whose first contact was a WhatsApp message is stored as
-  -- 11988887777 while this door now searches for 5511988887777. Searching the
-  -- canonical form alone would miss them and register a second row -- exactly
+  -- THE BOT'S SPELLING IS SEARCHED SECOND, and it is searched by name rather
+  -- than by hoping the caller typed it. The WhatsApp bot's own registration
+  -- (apply_member_creation called with whatsapp_local_phone's answer, in
+  -- ingest_whatsapp_event and ingest_link_intent, both live on 0179) still
+  -- writes the LOCAL form, so a listener whose first contact was a WhatsApp
+  -- message is stored as 11988887777 while the search above looks for
+  -- 5511988887777 and finds nothing -- and registering them again is exactly
   -- the split item 1b exists to stop, in the one direction this migration does
-  -- not close. Adding the canonical search IN FRONT of the search this door
-  -- already made, rather than in place of it, is what keeps every listener
-  -- reachable today reachable after it. Delete this branch when the bot's
-  -- doors write the canonical form too.
-  if v_found ->> 'outcome' = 'none' and v_phone is distinct from p_phone then
+  -- not close.
+  --
+  -- COMPUTED, NOT ECHOED. Searching p_phone back would only help a caller who
+  -- happened to type the local form: every real caller of this door already
+  -- sends what it sends, so a `v_phone is distinct from p_phone` guard is false
+  -- for them and the second search never runs. whatsapp_local_phone(v_phone) is
+  -- the bot's own function applied to the canonical value, so it produces the
+  -- bot's spelling whatever the caller typed. It strictly covers the raw case
+  -- too: a caller who did type the local form has v_phone normalising to the
+  -- prefixed digits and v_local back to exactly what they typed.
+  --
+  -- Delete this branch when the bot's doors write the canonical form too.
+  v_local := public.whatsapp_local_phone(v_phone);
+  if v_found ->> 'outcome' = 'none'
+     and v_local is distinct from public.normalize_phone(v_phone) then
     v_found := public.find_member_by_identifier(
-      v_org, p_phone, p_email, p_cpf_hash, p_passport);
+      v_org, v_local, p_email, p_cpf_hash, p_passport);
   end if;
 
   if v_found ->> 'outcome' = 'visible' then
@@ -212,6 +227,22 @@ begin
   -- 0031_members.sql) can each be the one that collides. find_member_by_identifier
   -- (0033) is the friendly pre-submission path; this is what makes a duplicate
   -- unrepresentable even if a caller skips it or loses a race.
+  --
+  -- WHAT THAT STILL MEANS AFTER 0263, EXACTLY. The phone index refuses a second
+  -- listener carrying the same phone_normalized, unchanged. What it has never
+  -- been able to see is two SPELLINGS of one number, and 0263 widened that gap
+  -- rather than closing it: this door now stores 5511988887777 where the
+  -- WhatsApp bot (0179) still stores 11988887777, so a caller reaching this
+  -- function directly -- through PostgREST, say -- with the local form would
+  -- not collide with the bot's row and would register the same person twice.
+  -- The console is not that caller: register-member-form.tsx reveals this
+  -- action only once checkMemberIdentifierAction has answered 'none'
+  -- (src/app/(app)/members/actions.ts:87-94), and that check hands the
+  -- operator's own keystrokes to find_member_by_identifier -- so an operator
+  -- typing the local form does find the bot's listener and is told before this
+  -- function is called at all. resolve_or_create_member, the other way in,
+  -- searches both spellings itself. The gap closes when the bot writes the
+  -- canonical form too.
   begin
     insert into public.members
       (organization_id, full_name, phone, email, cpf_hash, cpf_last_digits, passport,
@@ -464,13 +495,28 @@ begin
   end if;
 
   -- Block 30d, item 1b. THE CANONICAL NUMBER IS WHAT IS STORED AND WHAT IS
-  -- SENT TO, and the design's first ruling here -- keep whatever the visitor
-  -- typed, because widget_verify_code matches the row against what the browser
-  -- posts back -- was reversed on 2026-08-21 for a reason that ruling did not
-  -- weigh: enqueue_whatsapp_outbound below is handed this same value, and
-  -- Meta cannot deliver to a national number. A visitor typing 11 98888-7777
-  -- got a row, an outbox message, an 'ok' -- and no code, ever, which from
-  -- their side is indistinguishable from the widget being broken.
+  -- SENT TO. The design's first ruling here -- keep whatever the visitor typed,
+  -- because widget_verify_code matches the row against what the browser posts
+  -- back -- was reversed on 2026-08-21.
+  --
+  -- AND THE STATED REASON FOR REVERSING IT WAS WRONG, so it is not repeated
+  -- here. It said a visitor typing 11 98888-7777 got a row, an outbox message,
+  -- an 'ok', and no code Meta could deliver. That is not reachable through the
+  -- widget and has not been since 2026-08-11: composePhone
+  -- (src/app/(widget)/w/[publicKey]/identify-form.tsx:41) joins a country-code
+  -- box to a local box and posts '+' || digits, and its own comment records
+  -- that as the fix for exactly this harm.
+  --
+  -- What the reversal actually buys, and it is worth having:
+  --   * asking in one spelling and entering in another now matches. Two raw
+  --     strings compared literally answered no_pending_code; one canonical
+  --     value on both sides is the same number.
+  --   * the row and the outbox agree with every other door in this file about
+  --     what a number is, so a verification is legible next to a member.
+  --   * a caller that is NOT the widget gets the same protection. Both doors
+  --     are granted to service_role, so the shipped form is not the only thing
+  --     that can reach them, and the pre-2026-08-11 harm is what an unguarded
+  --     caller still walks into.
   --
   -- Storing the canonical form does not break the second call, it fixes it:
   -- widget_verify_code computes THE SAME expression from THE SAME
@@ -603,6 +649,7 @@ declare
   v_verif   public.widget_verifications;
   v_country text;
   v_phone   text;
+  v_local   text;
   v_member  uuid;
   v_anon    boolean;
 begin
@@ -719,19 +766,27 @@ begin
 
   -- 7. Resolved through the SAME core the WhatsApp bot (0062) and the
   -- Block 15 API door (0152) use -- nothing new decides who a listener is.
-  -- The RAW phone, not a normalised one: members.phone_normalized is a
-  -- generated column and apply_member_lookup normalises what it is handed
-  -- through normalize_phone (0031) itself; 0152's comment on this exact call
-  -- makes the same argument for the API door, and it applies unchanged here.
+  -- v_phone, which is the one value this function uses for every question it
+  -- asks about a number: the verification row in step 2, this lookup, and the
+  -- registration in step 8. Not p_phone, and not a normalisation of it --
+  -- apply_member_lookup normalises whatever it is handed through
+  -- normalize_phone (0031) anyway, so what matters here is not the punctuation
+  -- but WHICH NUMBER is asked about, and at a Station with a country the
+  -- canonical one is a different number from the keystrokes.
   v_member := public.apply_member_lookup(v_install.organization_id, v_phone, null, null, null);
 
-  -- And the raw spelling second, for the reason resolve_or_create_member's own
-  -- comment gives at length: the WhatsApp bot still registers a listener under
-  -- the local form, and searching only the canonical one would hand a visitor
-  -- the bot already knows a second row. This branch resolves; it writes
-  -- nothing, so a listener found by it keeps the phone the bot stored.
-  if v_member is null and v_phone is distinct from p_phone then
-    v_member := public.apply_member_lookup(v_install.organization_id, p_phone, null, null, null);
+  -- And the bot's spelling second, for the reason resolve_or_create_member's
+  -- own comment gives at length: the WhatsApp bot still registers a listener
+  -- under the local form, and searching only the canonical one would hand a
+  -- visitor the bot already knows a second row. Computed with
+  -- whatsapp_local_phone rather than echoing p_phone back, because the widget's
+  -- own form has posted '+' || digits since 2026-08-11 (composePhone,
+  -- identify-form.tsx:41) -- a guard comparing v_phone with p_phone would be
+  -- false for every real visitor and this branch would never run. It resolves;
+  -- it writes nothing, so a listener found by it keeps the phone the bot stored.
+  v_local := public.whatsapp_local_phone(v_phone);
+  if v_member is null and v_local is distinct from public.normalize_phone(v_phone) then
+    v_member := public.apply_member_lookup(v_install.organization_id, v_local, null, null, null);
   end if;
 
   if v_member is not null then
@@ -844,6 +899,7 @@ declare
   v_org        uuid;
   v_country    text;
   v_phone      text;
+  v_local      text;
   v_scopes     text[];
   v_external   text := nullif(btrim(coalesce(p_request_external_id, '')), '');
   v_name       text := nullif(btrim(coalesce(p_listener_name, '')), '');
@@ -923,18 +979,24 @@ begin
     end if;
   end if;
 
-  -- The RAW phone, not the normalised one: members.phone_normalized is a
-  -- generated column and both cores normalise what they are given. Handing them
-  -- a pre-normalised value would make a promise about idempotence that nothing
-  -- here needs -- 0033's own reasoning for passing raw arguments on.
+  -- v_phone, which is the one value this door uses for the guard above, this
+  -- lookup and the registration below. Not p_phone, and the difference is not
+  -- punctuation: both cores normalise whatever they are given, so what changes
+  -- here is WHICH NUMBER is asked about -- at a Station with a country the
+  -- canonical form is a different number from the digits that arrived.
   v_member := public.apply_member_lookup(v_org, v_phone, null, null, null);
 
-  -- And the raw spelling second, for the reason resolve_or_create_member's own
-  -- comment gives at length: the WhatsApp bot still registers a listener under
-  -- the local form, and a Station running both the bot and this API would get
-  -- a second row for one person.
-  if v_member is null and v_phone is distinct from p_phone then
-    v_member := public.apply_member_lookup(v_org, p_phone, null, null, null);
+  -- And the bot's spelling second, for the reason resolve_or_create_member's
+  -- own comment gives at length: the WhatsApp bot still registers a listener
+  -- under the local form, and a Station running both the bot and this API would
+  -- get a second row for one person. Computed with whatsapp_local_phone rather
+  -- than echoing p_phone back, because this endpoint's documented contract is
+  -- already the international form (docs/API.md:147) -- a guard comparing
+  -- v_phone with p_phone would be false for every caller following it, and this
+  -- branch would never run.
+  v_local := public.whatsapp_local_phone(v_phone);
+  if v_member is null and v_local is distinct from public.normalize_phone(v_phone) then
+    v_member := public.apply_member_lookup(v_org, v_local, null, null, null);
   end if;
 
   if v_member is not null then
@@ -1095,8 +1157,14 @@ begin
   -- NATIONAL range, and whatsapp_local_phone strips at lengths 12 and 13 only,
   -- so at a national length v_local IS the delivered digits unchanged. One of
   -- the two is always the delivered form. Two lookups before, two lookups now.
+  --
+  -- The guard compares v_local against normalize_phone(v_phone) rather than
+  -- against v_phone itself, and the three resolving doors in this file use the
+  -- identical test. v_phone carries a leading plus and v_local never does, so a
+  -- direct comparison is true even when the two name the same digits, and the
+  -- second lookup would fire knowing it must miss.
   v_member := public.apply_member_lookup(v_integ.organization_id, v_phone, null, null, null);
-  if v_member is null and v_local is distinct from v_phone then
+  if v_member is null and v_local is distinct from public.normalize_phone(v_phone) then
     v_member := public.apply_member_lookup(v_integ.organization_id, v_local, null, null, null);
   end if;
 
@@ -1180,6 +1248,28 @@ grant execute on function public.api_record_music_request(uuid, uuid, uuid, text
 -- not edited; the grant it is missing is added here.
 grant execute on function public.normalize_phone(text) to service_role;
 
+-- AND THE SAME TRAP, SPRUNG. whatsapp_local_phone (0062) carries no grant to
+-- any role at all -- 0062 revoked it from public and granted it to nobody --
+-- because every caller it had was SECURITY DEFINER owned by postgres, so the
+-- nested call ran as the owner and no grant was ever needed. This file adds a
+-- caller that is not: resolve_or_create_member is SECURITY INVOKER (it reads
+-- companies under the caller's own RLS, deliberately), so its second search
+-- runs as `authenticated` and failed outright with "permission denied for
+-- function whatsapp_local_phone" -- caught by
+-- supabase/tests/72_international_phone.test.sql, not by reasoning. 0062 is
+-- merged and is not edited; the grant it never needed is added here.
+grant execute on function public.whatsapp_local_phone(text) to authenticated;
+
+-- 0231's comment on withdraw_marketing_by_phone describes the resolution order
+-- this file just inverted -- "local form then delivered form, the same order
+-- ... ingest_whatsapp_event (0179) already resolves every listener through".
+-- That sentence was true when it was written and is false now, and a comment
+-- that describes the opposite of what the body does is worse than none: the
+-- next reader trusts it. Restated below with the order the body now uses and
+-- why it changed. Everything else in it is unchanged and still true.
+comment on function public.withdraw_marketing_by_phone(uuid, text) is
+  'Block 29c, F7/F8. The cold-path stop word: PARAR/CANCELAR/DESCADASTRAR with no live conversation to answer. Resolves the sender through apply_member_lookup (0061) -- since 0263, international_phone''s answer FIRST and whatsapp_local_phone''s second, which is the reverse of the order 0231 shipped: 0262 moved the listeners this door has to find into the international form, so the canonical spelling is now the likelier hit and the local one is the fallback for a row that repair could not reach. The delivered form is not searched on its own any more because it cannot be missed -- international_phone either leaves the delivered digits alone or prefixes a national-length number, and whatsapp_local_phone strips at lengths 12 and 13 only, so one of the two is always what Meta delivered. Still the shared core ingest_whatsapp_event (0179) resolves every listener through, never a re-implementation of phone_normalized''s own normalize_phone (0031). Scoped to the Station THIS integration belongs to (spec D3): a member this Station never linked answers null, identically to an unknown phone, because nothing was withdrawn HERE either way -- the caller must not tell either one "removed". Writes member_consents (whatsapp_marketing, granted=false, origin=''stop_word'') directly rather than through record_member_consent, which is gated on has_permission and would refuse a caller with no auth.uid(). Returns the STATION''S id rather than a boolean (F8): the caller needs it to resolve the Station''s own MARKETING_STOPPED wording the same way the in-conversation path already does, not only to know whether to reply at all. SECURITY DEFINER, service_role only -- the worker holds no user identity, so this is a door rather than a grant, the same shape enqueue_whatsapp_outbound (0071) already uses.';
+
 -- 0260's comment ended by claiming that "the doors that write a phone all call
 -- this, so the widget, the console, the spreadsheet and the bot cannot come to
 -- disagree about what a number is". Three quarters of that is true as of this
@@ -1189,4 +1279,4 @@ grant execute on function public.normalize_phone(text) to service_role;
 -- say what is actually wired -- and to name what is not, so the next reader
 -- goes and looks instead of trusting it.
 comment on function public.international_phone(text, text) is
-  'One telephone number in the form this database already stores: a leading plus, then the country code, then the national number, and no other punctuation -- the shape every members.phone row in production already carries. Goes through normalize_phone (0031) for the comparison rather than stripping punctuation itself, so it cannot drift from members.phone_normalized, the generated column whose value decides who is who; that column drops the plus, so identity is unaffected by it. IDEMPOTENT: running this over its own output returns the same string, which is what makes the 0262 repair safe to re-run. Returns the digits UNCHANGED AND UNPREFIXED when country_phone_rule has no row for the country and when the length matches neither range -- refusing would stop a listener registering because an administrator left a select empty, guessing would split one person into two rows, and a plus in front of a number whose country nobody established would be a claim this function has not earned. Block 30d, item 1b: 0263 wired the console (create_member, update_member), the spreadsheet (resolve_or_create_member, which import_participations calls once per row), the widget (widget_request_code and widget_verify_code together, so the row one writes is the row the other matches) and the external API (api_record_music_request) to this function, so those four cannot come to disagree about what a number is. THE BOT IS NOT WIRED YET: ingest_whatsapp_event and ingest_link_intent (0179) still register a listener under whatsapp_local_phone''s LOCAL form, which is why every door 0263 touched goes on searching the raw spelling as well as this one.';
+  'One telephone number in the form this database already stores: a leading plus, then the country code, then the national number, and no other punctuation -- the shape every members.phone row in production already carries. Goes through normalize_phone (0031) for the comparison rather than stripping punctuation itself, so it cannot drift from members.phone_normalized, the generated column whose value decides who is who; that column drops the plus, so identity is unaffected by it. A LEADING PLUS ON THE ARGUMENT SHORT-CIRCUITS THE WHOLE RULE: it is the caller asserting the international form, so the digits are returned with their plus and no country rule is consulted. Without that, the length test decides using the STATION''s national range and cannot tell a foreign number from a local one -- at a Brazilian Station the eleven-digit +12125551234 would be read as national and answered as +5512125551234, and update_member would do it again on every save. IDEMPOTENT: running this over its own output returns the same string -- now by that first branch rather than by the length ranges -- which is what makes the 0262 repair safe to re-run. Returns the digits UNCHANGED AND UNPREFIXED when country_phone_rule has no row for the country and when the length matches neither range -- refusing would stop a listener registering because an administrator left a select empty, guessing would split one person into two rows, and a plus in front of a number whose country nobody established would be a claim this function has not earned. Block 30d, item 1b: 0263 wired the console (create_member, update_member), the spreadsheet (resolve_or_create_member, which import_participations calls once per row), the widget (widget_request_code and widget_verify_code together, so the row one writes is the row the other matches) and the external API (api_record_music_request) to this function, so those four cannot come to disagree about what a number is. THE BOT IS NOT WIRED YET: ingest_whatsapp_event and ingest_link_intent (0179) still register a listener under whatsapp_local_phone''s LOCAL form, which is why the three doors that resolve a listener before they write one -- resolve_or_create_member, widget_verify_code and api_record_music_request -- go on searching a second spelling, whatsapp_local_phone''s answer, as well as this one. withdraw_marketing_by_phone searches that same pair for the same reason; the other three write without resolving and search nothing.';

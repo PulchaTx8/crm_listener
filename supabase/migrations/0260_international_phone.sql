@@ -34,16 +34,25 @@ as $$
 $$;
 
 comment on function public.country_phone_rule(text) is
-  'The calling code and the national length range for one ISO 3166-1 alpha-2 country, or no row. Holds only countries whose national numbering has been verified -- international_phone returns the digits unchanged for every other, which is why an absent row is a safe answer rather than a gap. US and CA share calling code 1 on purpose: this function composes numbers and never decomposes them, so the many-to-one is not an ambiguity here.';
+  'The calling code and the national length range for one ISO 3166-1 alpha-2 country, or no row. Holds only countries whose national numbering has been verified -- international_phone returns the digits unchanged for every other, which is why an absent row is a safe answer rather than a gap. US and CA share calling code 1 on purpose: this function composes numbers and never decomposes them, so the many-to-one is not an ambiguity here. A NEW ROW MUST KEEP national_max UNDER 12, or it silently breaks an argument made elsewhere: withdraw_marketing_by_phone (0263) searches international_phone''s answer and then whatsapp_local_phone''s, and reasons that one of the two is always the number Meta delivered -- which holds only because whatsapp_local_phone strips a leading 55 at digit-lengths 12 and 13 only, so a national length of 12 or more would be stripped by it and neither search would be the delivered form. A country whose national numbering really is that long needs that door revisited in the same commit.';
 
 -- The digits as the Cloud API wants them, or the digits unchanged when no rule
 -- can decide.
 --
--- THE INTERNATIONAL RANGE IS TESTED FIRST. For every rule here the two ranges
--- are disjoint (Brazil: 12-13 international against 10-11 national), so the
--- order is not load-bearing today -- it is stated so that a country added later
--- with overlapping ranges fails towards leaving a number alone rather than
--- towards prefixing one that already has a prefix.
+-- A LEADING PLUS IS TESTED BEFORE ANY OF IT, and that test is not a shortcut
+-- but a correctness fix. The length rule decides using the STATION's national
+-- range, and it has no way to know the number is not from that country: at a
+-- Brazilian Station (national 10-11) the US number +12125551234 is eleven
+-- digits, so the rule reads it as national and answers +5512125551234. Because
+-- update_member calls this on every ficha save, a foreign listener's number
+-- would be corrupted afresh every time an operator corrected it, and
+-- phone_normalized -- which decides who is who -- would follow.
+--
+-- THE INTERNATIONAL RANGE IS TESTED FIRST of the two ranges below. For every
+-- rule here they are disjoint (Brazil: 12-13 international against 10-11
+-- national), so that order is not load-bearing today -- it is stated so that a
+-- country added later with overlapping ranges fails towards leaving a number
+-- alone rather than towards prefixing one that already has a prefix.
 create or replace function public.international_phone(p_phone text, p_country text)
 returns text
 language plpgsql
@@ -56,6 +65,17 @@ declare
 begin
   if v_digits is null then
     return null;
+  end if;
+
+  -- The caller asserting the international form, and nothing below may
+  -- second-guess it -- see the header comment for the number this protects.
+  -- Read off the ARGUMENT rather than off v_digits because the plus is exactly
+  -- the punctuation normalize_phone throws away, so by the time the rule below
+  -- is consulted there is nothing left to tell +12125551234 from 12125551234.
+  -- Answering '+' || v_digits rather than p_phone keeps the one output shape
+  -- this function promises: a plus, then digits, and no other punctuation.
+  if left(btrim(coalesce(p_phone, '')), 1) = '+' then
+    return '+' || v_digits;
   end if;
 
   select * into v_rule from public.country_phone_rule(p_country);
@@ -78,7 +98,7 @@ end;
 $$;
 
 comment on function public.international_phone(text, text) is
-  'One telephone number in the form this database already stores: a leading plus, then the country code, then the national number, and no other punctuation -- the shape every members.phone row in production already carries. Goes through normalize_phone (0031) for the comparison rather than stripping punctuation itself, so it cannot drift from members.phone_normalized, the generated column whose value decides who is who; that column drops the plus, so identity is unaffected by it. IDEMPOTENT: running this over its own output returns the same string, which is what makes the 0262 repair safe to re-run. Returns the digits UNCHANGED AND UNPREFIXED when country_phone_rule has no row for the country and when the length matches neither range -- refusing would stop a listener registering because an administrator left a select empty, guessing would split one person into two rows, and a plus in front of a number whose country nobody established would be a claim this function has not earned. Block 30d, item 1b: the doors that write a phone all call this, so the widget, the console, the spreadsheet and the bot cannot come to disagree about what a number is.';
+  'One telephone number in the form this database already stores: a leading plus, then the country code, then the national number, and no other punctuation -- the shape every members.phone row in production already carries. Goes through normalize_phone (0031) for the comparison rather than stripping punctuation itself, so it cannot drift from members.phone_normalized, the generated column whose value decides who is who; that column drops the plus, so identity is unaffected by it. A LEADING PLUS ON THE ARGUMENT SHORT-CIRCUITS THE WHOLE RULE: it is the caller asserting the international form, so the digits are returned with their plus and no country rule is consulted. Without that, the length test decides using the STATION''s national range and cannot tell a foreign number from a local one -- at a Brazilian Station the eleven-digit +12125551234 would be read as national and answered as +5512125551234, and update_member would do it again on every save. IDEMPOTENT: running this over its own output returns the same string -- now by that first branch rather than by the length ranges -- which is what makes the 0262 repair safe to re-run. Returns the digits UNCHANGED AND UNPREFIXED when country_phone_rule has no row for the country and when the length matches neither range -- refusing would stop a listener registering because an administrator left a select empty, guessing would split one person into two rows, and a plus in front of a number whose country nobody established would be a claim this function has not earned. Block 30d, item 1b: the doors that write a phone all call this, so the widget, the console, the spreadsheet and the bot cannot come to disagree about what a number is.';
 
 revoke execute on function public.country_phone_rule(text) from public;
 revoke execute on function public.international_phone(text, text) from public;
