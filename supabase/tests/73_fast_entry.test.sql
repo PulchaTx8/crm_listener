@@ -1,5 +1,5 @@
 begin;
-select plan(26);
+select plan(30);
 
 -- Block 30d, item 14 (D8, D9) and the last door of item 1b (D4).
 --
@@ -22,26 +22,51 @@ select plan(26);
 -- ---------------------------------------------------------------------------
 -- Fixtures.
 --
--- TWO STATIONS. A is fully configured -- integration, enabled installation,
--- promotions -- and every fast-path assertion runs there. B has an integration
--- and a ruled promotion and NO widget installation, which is the ordinary
--- state of a Station nobody has switched the widget on for (0159), and it is
--- the placement assertion: the fast path sits AFTER the no_installation gate,
--- so B answers under its own name and enters nobody.
+-- FOUR STATIONS. A is fully configured -- integration, enabled installation,
+-- promotions -- and most assertions run there. B has an integration and a
+-- ruled promotion and NO widget installation, which is the ordinary state of a
+-- Station nobody has switched the widget on for (0159): the fast path sits
+-- ABOVE the no_installation gate, so B ENTERS a listener with nothing left to
+-- answer and still falls to that gate for one who needs the widget. C is
+-- suspended and D's Organization is blocked -- the tenant-liveness pair, which
+-- that same gate used to enforce for the whole promotion path by resolving
+-- v_install through a join on c.status, c.deleted_at and o.suspended_at. With
+-- the fast path above the gate, this file is what stops that enforcement
+-- leaving with it.
 --
--- country = 'BR' on both. Without it international_phone returns the digits
--- unchanged (0260) and assertion 11 would pass for the wrong reason: the
--- stored value would equal the delivered one because nothing was applied, not
--- because the canonical form was.
+-- country = 'BR' on every one of them. Without it international_phone returns
+-- the digits unchanged (0260) and assertion 17 -- the canonical-phone check,
+-- which was assertion 11 before the placement and tenant-liveness cases were
+-- inserted above it -- would pass for the wrong reason: the stored value would equal
+-- the delivered one because nothing was applied, not because the canonical
+-- form was.
 -- ---------------------------------------------------------------------------
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-0000000030f0', 'Org fast entry');
+
+-- The blocked Organization of Station D. organizations_block_shape (0154)
+-- makes suspended_at and suspended_by a pair, so the blocker is a real user.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000030b1', 'fast-entry-blocker@example.test');
+
+insert into public.organizations (id, name, suspended_at, suspended_by, suspension_reason) values
+  ('00000000-0000-0000-0000-0000000030b0', 'Org fast entry (blocked)',
+   now(), '00000000-0000-0000-0000-0000000030b1', 'blocked for 73_fast_entry fixtures');
 
 insert into public.companies (id, organization_id, name, timezone, country, status) values
   ('00000000-0000-0000-0000-0000000030f5', '00000000-0000-0000-0000-0000000030f0',
    'Station A fast entry', 'America/Sao_Paulo', 'BR', 'active'),
   ('00000000-0000-0000-0000-0000000030f9', '00000000-0000-0000-0000-0000000030f0',
-   'Station B (no widget installation)', 'America/Sao_Paulo', 'BR', 'active');
+   'Station B (no widget installation)', 'America/Sao_Paulo', 'BR', 'active'),
+  -- SUSPENDED, and otherwise as complete as Station A: an integration, a live
+  -- ruled promotion that asks nothing. Every reason to enter somebody except
+  -- the one that counts.
+  ('00000000-0000-0000-0000-0000000030c1', '00000000-0000-0000-0000-0000000030f0',
+   'Station C (suspended)', 'America/Sao_Paulo', 'BR', 'suspended'),
+  -- ACTIVE ITSELF, but its Organization is blocked -- the other half of the
+  -- pair the no_installation join enforces.
+  ('00000000-0000-0000-0000-0000000030c2', '00000000-0000-0000-0000-0000000030b0',
+   'Station D (active, blocked Organization)', 'America/Sao_Paulo', 'BR', 'active');
 
 insert into public.widget_installations
   (id, organization_id, company_id, public_key, enabled)
@@ -55,7 +80,11 @@ values
   ('00000000-0000-0000-0000-0000000030f0', '00000000-0000-0000-0000-0000000030f5',
    'WHATSAPP', '303030303030301', true),
   ('00000000-0000-0000-0000-0000000030f0', '00000000-0000-0000-0000-0000000030f9',
-   'WHATSAPP', '303030303030302', true);
+   'WHATSAPP', '303030303030302', true),
+  ('00000000-0000-0000-0000-0000000030f0', '00000000-0000-0000-0000-0000000030c1',
+   'WHATSAPP', '303030303030303', true),
+  ('00000000-0000-0000-0000-0000000030b0', '00000000-0000-0000-0000-0000000030c2',
+   'WHATSAPP', '303030303030304', true);
 
 -- Promo Rapida asks for full_name and NOTHING ELSE -- no questions at all, so
 -- the step list for a listener who has a name is consent and nothing more.
@@ -87,7 +116,17 @@ values
    '00000000-0000-0000-0000-0000000030f9', 'Promo Sem Widget Que Pergunta',
    now() - interval '1 day', now() + interval '30 days',
    true, '#PEDEDADOS', 'Regulamento da Promo Sem Widget Que Pergunta.',
-   '{full_name}');
+   '{full_name}'),
+  -- The two tenant-liveness promotions. Both ask NOTHING, so both would be
+  -- entered on the spot if the fast path did not test the tenant.
+  ('00000000-0000-0000-0000-0000000030c3', '00000000-0000-0000-0000-0000000030f0',
+   '00000000-0000-0000-0000-0000000030c1', 'Promo da Station Suspensa',
+   now() - interval '1 day', now() + interval '30 days',
+   true, '#SUSPENSA', 'Regulamento da promo da Station suspensa.', '{}'),
+  ('00000000-0000-0000-0000-0000000030c4', '00000000-0000-0000-0000-0000000030b0',
+   '00000000-0000-0000-0000-0000000030c2', 'Promo da Org Bloqueada',
+   now() - interval '1 day', now() + interval '30 days',
+   true, '#BLOQUEADA', 'Regulamento da promo da Org bloqueada.', '{}');
 
 -- The two numbers, set in an UPDATE rather than in the INSERT above only so
 -- this comment sits beside them: promotions_repetition_shape and
@@ -268,7 +307,52 @@ select is(
   'but a listener with a field still to fill needs the widget, and without an installation that Station still finishes under its own name');
 
 -- ---------------------------------------------------------------------------
--- 12-13. D4, the last door of item 1b. A number nobody knows: the listener the
+-- 12-15. TENANT LIVENESS, and this is the case fix round 1 broke and fix round
+--        2 restores. Until the fast path moved, the no_installation gate was
+--        the ONLY thing enforcing it on the promotion path: v_install is
+--        resolved through a join carrying c.deleted_at is null,
+--        c.status = 'active' and o.suspended_at is null, so a suspended
+--        Station or a blocked Organization could not reach any yes at all.
+--        The gate advertised one job and did two; moving the fast path above
+--        it took the first and left the second.
+--
+--        The bypass was real, not theoretical: with the fast path ungated, a
+--        suspended Station answered `recorded`, wrote the participation AND
+--        enqueued the confirmation -- on the path 0164's own comment calls
+--        "THE ENDPOINT THAT SPENDS MONEY", because every send past it bills
+--        the Station whose subscription lapsed.
+--
+--        Both halves of the pair are pinned, because the fast path now tests
+--        all three columns itself and a test of one proves nothing about the
+--        others. The outbox assertion is deliberate: an entry written and no
+--        message sent would still be a bill this Station must not receive.
+-- ---------------------------------------------------------------------------
+select is(
+  pg_temp.ingest('00000000-0000-0000-0000-0000000030eb', 'wamid.FAST-11',
+                 '5511930000001', '#SUSPENSA', '303030303030303') ->> 'outcome',
+  'no_installation',
+  'a SUSPENDED Station enters nobody, however little is left to ask: the fast path tests tenant liveness itself now that it no longer sits behind the gate that used to');
+
+select is(
+  (select count(*) from public.participations
+    where promotion_id = '00000000-0000-0000-0000-0000000030c3'),
+  0::bigint,
+  'and writes no participation');
+
+select is(
+  (select count(*) from public.outbox_messages
+    where dedupe_key = encode(sha256(convert_to('wamid.FAST-11', 'UTF8')), 'hex') || ':confirmation'),
+  0::bigint,
+  'and enqueues nothing: a suspended Station must not be billed for a send');
+
+select is(
+  pg_temp.ingest('00000000-0000-0000-0000-0000000030ec', 'wamid.FAST-12',
+                 '5511930000001', '#BLOQUEADA', '303030303030304') ->> 'outcome',
+  'no_installation',
+  'and a BLOCKED Organization answers the same for a Station of its own that is active: all three columns of the liveness join are tested, not just the Station''s status');
+
+-- ---------------------------------------------------------------------------
+-- 16-17. D4, the last door of item 1b. A number nobody knows: the listener the
 --     bot registers carries the CANONICAL international form, the same shape
 --     0263 gave the console, the spreadsheet, the widget and the API. Before
 --     this migration this row would have read 11930000009.
@@ -287,7 +371,7 @@ select is(
   'and the bot stores the CANONICAL form, not whatsapp_local_phone''s answer');
 
 -- ---------------------------------------------------------------------------
--- 14-15. And the second search that must survive it. 30fd is stored in the
+-- 18-19. And the second search that must survive it. 30fd is stored in the
 --        local form, which is what this door wrote until 0267; the canonical
 --        search misses it and the local one finds it. Deleting that fallback
 --        would register this listener a second time -- the split item 1b
@@ -312,12 +396,12 @@ select is(
 -- Registered HERE, after the session-message assertions above and before the
 -- template one below, so both halves of D9's rule are exercised by the same
 -- door on the same promotion -- the only difference between assertion 3 and
--- assertion 17 is that these rows exist.
+-- assertion 21 is that these rows exist.
 --
 -- The one at Station B uses TWO placeholders for a purpose whose sentence has
 -- ONE variable. That is a thing an operator can type on the Templates screen,
 -- and enqueue_whatsapp_outbound refuses it with 22023 (0111) -- which on the
--- fast path would roll back an entry already written. Assertion 25 pins that
+-- fast path would roll back an entry already written. Assertion 29 pins that
 -- the envelope declines to choose it.
 -- ---------------------------------------------------------------------------
 insert into public.message_templates
@@ -340,7 +424,7 @@ values
    'Confirmado: {{1}} para {{2}}.', 'WHATSAPP', 'Confirmada com contrato errado');
 
 -- ---------------------------------------------------------------------------
--- 16-18. D9, second half: a live registration whose body wants exactly the
+-- 20-22. D9, second half: a live registration whose body wants exactly the
 --        variable this sentence has, so the reply goes as the template, and
 --        `body` is what the APPROVED text rendered to rather than the sentence
 --        the session message would have carried.
@@ -372,7 +456,7 @@ select is(
   'a promotion that asks nothing of anybody enters a known listener at once');
 
 -- ---------------------------------------------------------------------------
--- 20-25. The envelope directly, over the shapes a door cannot easily produce.
+-- 24-29. The envelope directly, over the shapes a door cannot easily produce.
 --        These are the four purpose contracts the Templates screen states, and
 --        every way a template can be missing.
 -- ---------------------------------------------------------------------------
@@ -427,7 +511,7 @@ select is(
   'a registration whose body wants two variables for a one-variable sentence is NOT chosen: enqueue_whatsapp_outbound would raise 22023 and roll back an entry already written');
 
 -- ---------------------------------------------------------------------------
--- 26. The wrapper. Its callers want the words, and it passes a null company
+-- 30. The wrapper. Its callers want the words, and it passes a null company
 --     precisely so it can never be handed a template -- with all four
 --     registrations above in place, it still answers the sentence.
 -- ---------------------------------------------------------------------------
