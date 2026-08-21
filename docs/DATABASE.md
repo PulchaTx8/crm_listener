@@ -345,3 +345,110 @@ none ever having been linked. Not a defect this migration introduces — the
 column's job is to survive the archive, not to render it — but recorded here
 because the next reader who wires up archiving `shows` will otherwise expect
 the name to reappear on its own.
+
+## Block 30d — one phone number, one Station language, four new templates
+
+**`companies.listener_locale`** (`0265`) — `text`, nullable, checked against
+the same three-locale set `profiles_locale_supported` names (`0135`). The
+language a Station's **widget** renders in for its listeners, set through
+`set_listener_locale` on `/messages/promo` (gated on `templates.manage`, the
+same permission that screen's system texts and two service hashtags already
+carry). **Deliberately not `locale`**: the console itself stays on
+`profiles.locale`, and a Station-level column with that name would invite the
+next person to wire the console to it. **Null means today's behaviour** — the
+widget falls back to the `locale` cookie, then `Accept-Language` — so no
+Station already running is affected until an operator actually sets it.
+`widget_frame_context` (live on `0164`, extended by `0265`) is what carries
+the value to the widget, because it is the one door every widget request
+calls in both its presentations; `widget_station_identity` (`0185`) was
+rejected for the same job because the widget page calls it only in the `app`
+presentation (`page.tsx:149`), which would leave an embedded widget — the
+product's whole point — never told.
+
+**`country_phone_rule(alpha2)` and `international_phone(phone, country)`**
+(`0260`) — one canonical telephone shape, the international form, digits with
+a leading `+`. **Length decides whether a number already carries a country
+code, never the prefix**, because Brazil's country code and its own area code
+for Santa Maria are both `55`: `5599998888` is a ten-digit *national* number
+that happens to open with the country's own calling code, and only the
+national-length range tells the two apart. `country_phone_rule` carries a row
+only for a country whose national numbering has actually been verified — BR,
+PT, ES, US and CA at the time of writing — and `international_phone` returns
+the digits **unchanged** for every other country and for any length neither
+range explains: an untouched number is no worse than what already gets
+stored today, while a wrong prefix creates exactly the duplicate listener
+this pair exists to stop. Adding a country is one row in `country_phone_rule`
+plus its pgTAP case; guessing a national length is the mistake this design
+exists to rule out. **A leading `+` on the argument short-circuits the whole
+rule** — the caller is asserting the international form already, so the
+digits come back with their plus and no country lookup runs at all; without
+that, an eleven-digit US number arriving at a Brazilian Station (national
+range 10–11) would be read as national and given a Brazilian prefix, and
+`update_member` calling this on every ficha save would keep re-corrupting it.
+
+Every door that writes a phone number calls `international_phone` at the
+point of writing, never inside the shared lookup (`apply_member_lookup`),
+because a lookup resolves and never writes — sanitising there would still let
+a door insert the raw digits after finding the right listener under the
+clean ones. `0263` wired seven: the widget's two verification calls,
+`create_member`, `update_member`, `resolve_or_create_member`,
+`api_record_music_request`, and `withdraw_marketing_by_phone` (lookup order
+only, since that door writes no phone). `0267` closed the eighth,
+`ingest_whatsapp_event` — the WhatsApp bot's own door, and the last one still
+writing the local form. Three of them (`resolve_or_create_member`,
+`widget_verify_code`, `api_record_music_request`) also keep a **second**
+search, computed as `whatsapp_local_phone` of the canonical value rather than
+the caller's raw argument: it is what still finds a listener the bot itself
+registered under the local form before its own door was fixed, and it stays
+useful until a sweep repairs those rows (see the debt below).
+
+**`companies.country`** (`0213`, Block 28) got `'BR'` on every existing row
+(`0261`) and the eight members already stored in the local form got their
+Station's calling code prefixed (`0262`) — both re-runnable: the repair's own
+predicate is "the sanitised form differs from what is stored", so a second
+run touches nothing. **A Station created after this with no country cannot
+prefix anything** — the door stores `international_phone`'s answer
+unchanged, which for an unprefixed number is exactly the digits it was
+given, and nothing is logged: refusing would stop a real registration over
+an administrator's unfilled select, and guessing a calling code would split
+one person into two rows, which is the fault this design exists to prevent.
+
+**`template_purpose` gained four values** (`0266`, alone in its own migration
+— Postgres cannot `USE` a value an `alter type ... add value` just added
+inside the transaction that added it): `PARTICIPATION_CONFIRMED`,
+`PARTICIPATION_DUPLICATE`, `PARTICIPATION_TOO_SOON`, `PARTICIPATION_OVER_LIMIT`
+— one per answer `apply_participation` can give, because the four sentences
+carry different variables and a single template that is nearly all
+placeholder is the shape Meta rejects. **All four are registered under
+Meta's Utility category**, unlike `WEB_VERIFICATION`'s Authentication
+(`docs/WIDGET.md` §4) — there is no OTP button to transcribe. **A Station
+that has registered none of the four still works**: `whatsapp_reply_envelope`
+(`0267`) sends the identical sentence as an ordinary session message whenever
+no live registration exists for the purpose, or one exists but its approved
+body does not want exactly the variables computed for it — legitimate
+specifically here, because the listener opened Meta's 24-hour window
+themselves by sending the hashtag seconds earlier. **The owner must register
+all four per Station at Meta** before any fast-path reply travels as an
+approved template; until then, every Station replies as a session message,
+which is working, not silent.
+
+### Debt this block leaves, worth knowing before touching either door
+
+- **`companies.timezone` accepts any string, still.** `add_company` (`0017`)
+  inserts whatever a platform admin posts with no format check, and no
+  rendered form even carries the field, so every Station created through a
+  screen gets the `'America/Sao_Paulo'` default and only a hand-crafted call
+  can put something unusable there. `whatsapp_reply_envelope` (`0267`) is the
+  one reader guarded against that: an unusable zone raises
+  `invalid_parameter_value` inside a caught block and degrades to the same
+  session-message sentence a listener gets when the next chance cannot be
+  computed at all. **Every other reader of that column is not guarded**, and
+  Block 30d did not audit them.
+- **`whatsapp_local_phone` survives**, and is not dead code: it is the second
+  search several doors make after the canonical one misses, reaching
+  listeners the bot registered in the local form before `0267`. What retires
+  it is a sweep that repairs every remaining local-form row, not a door that
+  stopped writing new ones.
+- **The eight members `0262` repaired are not the whole of the split.** A
+  listener the split already turned into two separate rows stays two rows;
+  merging them is the merge screen's job, not this migration's.

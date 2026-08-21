@@ -190,6 +190,23 @@ where both are present.
    them from typed names would breed duplicates with no cure.
 5. The request is recorded with channel `API`.
 
+### The phone number is stored in one form, whatever you send
+
+Since Block 30d, `listener.phone` is passed through the same canonicalisation
+every other door in this product uses — an international number, digits with
+a leading `+`. Send the international form and nothing changes for you, which
+is what the `+5511999998888` in the example above already was. **Send a bare
+national number for a Station this product has a verified rule for — Brazil,
+Portugal, Spain, the US or Canada — and it is prefixed before it is looked up
+or stored**, not registered as a second listener: `8199998888` reaching a
+Brazilian Station is looked up and written as `+558199998888`, the identical
+row a `+55`-prefixed call for the same person would reach. For a Station with
+no country recorded, or a country this product has no verified rule for yet,
+the digits are stored exactly as sent — unprefixed rather than guessed at,
+because a wrong prefix is the duplicate listener this change exists to
+prevent, and an unprefixed number is no worse than what this API already
+stored before Block 30d.
+
 ### What the server fetches for you
 
 Deezer's `/search` carries no record label, genre, UPC or release date. When

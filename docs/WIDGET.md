@@ -615,6 +615,21 @@ repeat, or a spent ceiling, is still recorded and answered exactly as it
 always was (Block 4c/5a), because that is a fact about the message the
 Station received and has nothing to do with whether rules text exists yet.
 
+**Since Block 30d, this gate stands ahead of a second way to say yes, not
+just the link.** A matched promotion with nothing left to ask this listener —
+no field and no question the promotion or their own history still needs — is
+now entered on the spot, with a confirmation sent back instead of a link
+(item 14's WhatsApp half; the widget's own version of the same idea is in
+§9). That path needs no widget installation, only the WhatsApp integration
+already resolved, so `no_rules` had to move ahead of it too: it now gates
+**both** ways `ingest_whatsapp_event` can say yes, and `no_installation` —
+which exists only to guard minting a link — trails both. **One visible
+consequence:** a Station with **no widget installation and no rules text**
+now answers `no_rules` where it used to answer `no_installation`. Both are
+silent to the listener; the one naming the promotion's own missing text is
+the more useful diagnostic for an operator asking "why didn't it work?",
+because it is the half that Station can fix without a console act.
+
 ### The failure table — never a 404 for a WhatsApp-minted link
 
 `/w/<publicKey>/enter?k=<code>` is the door every link points at. Whatever
@@ -770,3 +785,50 @@ for it to produce. This project has shipped application code ahead of its
 migrations three times already (Blocks 13a, 17b, 17c); `0186` is the shape
 that habit is most dangerous with, since a loud break at least announces
 itself. Apply it with this deploy, not "soon after".
+
+---
+
+## 14. Block 30d — the Station's own language, not the operator's
+
+`/messages/promo` — the same screen that already owns the two service
+hashtags and the system texts (§11) — carries one more field:
+**`companies.listener_locale`**, the language this Station's widget renders
+in for its listeners. Saved through `set_listener_locale`, gated on
+`templates.manage` like everything else on that screen.
+
+**Named `listener_locale`, deliberately not `locale`.** The console's own
+language stays on `profiles.locale`, painted by whichever operator is
+signed in — the owner's ruling of 2026-08-21 was that a Station decides what
+its *listeners* read, not what its *operators* read, and a column called
+`locale` sitting on the Station would be exactly the invitation to wire the
+console to it that this name exists to head off.
+
+**Null means the widget resolves language exactly as it did before this
+block** — the `locale` cookie the middleware writes from the signed-in
+operator's own preference, then `Accept-Language`. No Station already
+running is affected by the column's mere existence; only one that has
+actually been set sees anything different.
+
+When it does carry a value, `widget_frame_context` — the one door every
+widget request calls, in both presentations (§12) — returns it as
+`listenerLocale`, and the widget page wraps its own subtree in a fresh
+`NextIntlClientProvider` for that locale, overriding whatever the root
+layout's own provider chose. An operator who has set their own console to
+English and then opens the Station's own site now sees the widget in
+whatever language the Station chose — not the language they last picked for
+themselves, which was the defect this item was written against.
+
+**Known limit, recorded rather than fixed here: `<html lang>` still names
+the cookie's locale, never the Station's.** It is set once, by the root
+layout (`src/app/layout.tsx`), which wraps every route this deployment
+serves and has no way to know which widget installation a given request is
+for. A listener reading the widget in Spanish still gets a document whose
+`lang` attribute says whatever the last signed-in operator's cookie said —
+visible to a screen reader or a translation tool, invisible to anyone just
+reading the page. Fixing it needs a root layout that can read the route it
+is about to serve before it renders; this block did not attempt that.
+
+A promotion's own question text is a second, smaller change riding the same
+release: the text an operator wrote in `promotion_questions.prompt` is now
+drawn above its alternatives (§9's `Question`) — before this block only the
+alternatives themselves reached the browser.
