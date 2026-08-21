@@ -110,13 +110,20 @@ export default async function WidgetPage({
     // resolves to nothing to be identified.
     if (linkExpired) {
       const expired = <IdentifyForm publicKey={publicKey} linkExpired />;
-      // THE REQUEST'S OWN LOCALE HERE, not a Station's: this branch is reached
-      // precisely when the key resolves to no installation, so there is no
-      // Station to have chosen anything, and this screen renders under the
-      // ROOT provider — the same catalogue `<html lang>` already names. Stated
-      // rather than left off, because an omitted `lang` and a `lang` that
-      // happens to equal the document's read identically on screen and only
-      // one of them says which it meant.
+      // THE REQUEST'S OWN LOCALE HERE, not a Station's — and NOT because there
+      // is no Station. The paragraph above says exactly the opposite: this
+      // branch also catches a real Station that went dark between the link
+      // being minted and this tap, and such a Station may well have chosen a
+      // listener language. The reason is that the door WITHHOLDS it.
+      // `widget_frame_context` answers every refusal as
+      // `{found: false, origins: [], listenerLocale: null}` — measured, not
+      // assumed: the same key that answered `"listenerLocale": "pt"` answers
+      // null once its Organization is blocked. So there is no Station locale to
+      // be had here even where a Station exists, and this screen renders under
+      // the ROOT provider — the same catalogue `<html lang>` already names.
+      // Stated rather than left off, because an omitted `lang` and a `lang`
+      // that happens to equal the document's read identically on screen, and
+      // only one of them says which it meant.
       const requestLocale = await getLocale();
       return (await resolvePresentation()) === 'embedded' ? (
         <EmbeddedFrame lang={requestLocale}>{expired}</EmbeddedFrame>

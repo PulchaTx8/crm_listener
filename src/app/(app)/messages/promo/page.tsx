@@ -83,8 +83,14 @@ export default async function SystemMessagesPage({
       // migrations three times already (Blocks 13a, 17b and 17c, counted by
       // docs/WIDGET.md §13). On a deployment where 0265 has not landed,
       // PostgREST answers `42703` for that column, and the shared `catch`
-      // below would replace the ten system texts and both service hashtags
-      // with an error page — none of which depend on it. `null` is a value
+      // below would replace the whole system-message list and both service
+      // hashtags with an error page — none of which depend on it. (Not "the
+      // ten system texts": `SYSTEM_MESSAGE_KEYS` is `Object.keys(
+      // SYSTEM_MESSAGE_DEFAULTS)`, which has seventeen entries. "Ten" is a
+      // stale count this repository repeats in six other comments
+      // (`grep -rn "ten system texts\|ten edit forms\|ten texts a Station\|
+      // ten defaults" src/`); a number nothing recomputes is a comment waiting
+      // to lie, so this one names the list instead of counting it.) `null` is a value
       // this screen already renders correctly — the card's own
       // "follow the visitor's browser" — so the new card degrades to its
       // default and the rest of the screen is untouched. The same tolerance
@@ -158,7 +164,7 @@ export default async function SystemMessagesPage({
       <ListenerLanguage companyId={selected.id} locale={listenerLocale} manage={manage} />
 
       {/*
-        Said on the screen rather than only in the runbook: these ten bodies are
+        Said on the screen rather than only in the runbook: these bodies are
         the one place in this product where Portuguese is correct, and an
         operator who does not know that will "fix" them into English and take
         the bot's voice away from every listener at this Station.

@@ -179,19 +179,38 @@ hand.
 
 **One gap in that, and it is open at the time of writing (Block 30d).** The
 paragraph above is about the doors that FRAME the widget and IDENTIFY a
-visitor. The doors a visitor uses once identified — listing promotions and
-shows, and entering a promotion — all gate on one function,
-`widget_listener_context`, and **that function checks the Station but not the
-Organization**: `companies.status`, `companies.suspended_at` and
-`companies.deleted_at`, with no `organizations` join at all. A **suspended
-Station** is refused everywhere. A **blocked Organization** is refused by the
-page (so `/w/<key>` 404s, which is why this reads as closed) and not by the
-Server Actions behind it, so a listener holding a widget session cookie minted
-before the block can still enter a promotion — writing a consent, a
-participation and an audit row into an Organization somebody blocked. Verified
-against the live database, not inferred. It is a one-join change and a
-deliberate decision rather than an oversight to fix in passing; the reading,
-the probe and the cost are in
+visitor. The doors a visitor uses **once identified** gate on two different
+functions, and **neither checks the Organization** — both test
+`companies.status`, `companies.suspended_at` and `companies.deleted_at`, with no
+`organizations` join at all:
+
+| Context function | Doors it gates | What those doors write |
+| --- | --- | --- |
+| `widget_listener_context` | `widget_promotions`, `widget_shows`, `widget_enter_promotion` | a `member_consents` row, a `participations` row, an `audit_logs` row |
+| `widget_music_request_context` | `widget_music_request_wait`, `widget_record_music_request` | a `music_requests` row, plus whatever `apply_song_intake` creates — `songs`, `artists`, `albums` |
+
+**They are the only two**, and that is a mechanical answer rather than a
+reading: of the sixteen functions whose body mentions `widget_installations`,
+these two are the only ones that neither join `public.organizations` nor gate on
+`is_platform_admin` / `has_permission` / `is_owner` — and the permission path
+carries the condition already, inside `has_company_access_for` (`0156`).
+`is_platform_admin` deliberately does not, which is how a blocked Organization
+can be unblocked at all.
+
+A **suspended Station** is refused everywhere. A **blocked Organization** is
+refused by the page (so `/w/<key>` 404s, which is why this reads as closed) and
+not by the Server Actions behind it, so a listener holding a widget session
+cookie minted before the block can still enter a promotion and still ask for a
+song. Both probed against the live database in rolled-back transactions, not
+inferred: with the Organization blocked, `widget_enter_promotion` answered
+`ok:true` and wrote three rows, and `widget_record_music_request` answered
+`ok:true` and took `music_requests` from 1 to 2 while creating a song and an
+artist.
+
+It is one join **in each** — and a deliberate decision rather than an oversight
+to fix in passing. **Closing only `widget_listener_context` would leave half the
+exposure open**, which is exactly the mistake the earlier draft of this
+paragraph invited. The reading, both probes and the cost are in
 `.superpowers/sdd/2026-08-21-block-30d-widget/task-8-report.md` §47, alongside
 the two matching holes in the WhatsApp door.
 
