@@ -7,6 +7,7 @@ import {
   answersFor,
   decideAutoOpen,
   firstUnansweredScreen,
+  needsNoWalk,
   screensFor,
   type WidgetOption,
   type WidgetPromotion,
@@ -29,11 +30,19 @@ import {
 /**
  * Block 17c. The widget's second button, opened.
  *
- * THREE STATES: the list, the walk, and what happened. The walk is browser
- * state and NOTHING IS WRITTEN UNTIL THE END — which is not only simpler but
- * the only order that is correct: the first step is consent, and persisting a
- * listener's address and CPF as they typed them would collect personal data
- * ahead of the agreement that authorises collecting it.
+ * THREE STATES: the list, the walk, and what happened -- and since Block 30d
+ * (D8, D10) a promotion with nothing left to ask of THIS listener skips the
+ * middle one entirely: choosing it from the list submits, and the next thing
+ * on screen is what happened. `needsNoWalk` (promotion-mapping.ts) is what
+ * decides that, and it is a courtesy rather than a guard: the door recomputes
+ * the step list and refuses anything it still wants answers to.
+ *
+ * THE WALK IS BROWSER STATE AND NOTHING IS WRITTEN UNTIL THE END — which is
+ * not only simpler but the only order that is correct: the first step is
+ * consent, and persisting a listener's address and CPF as they typed them
+ * would collect personal data ahead of the agreement that authorises
+ * collecting it. The fast path writes on the first tap because it has nothing
+ * to collect: the only step it has is the agreement itself.
  *
  * THE WALK IS NOT A CHAT. The step list arrives in the order the WhatsApp bot
  * asks it, one thing per message, because a conversation has no other shape. A
@@ -65,6 +74,25 @@ export function EnterPromotionPanel({
 
   const [list, setList] = useState<ListState>({ status: 'loading' });
   const [chosen, setChosen] = useState<WidgetPromotion | null>(null);
+  /**
+   * Block 30d, fix round 3. The promotion a LINK named that asks this listener
+   * nothing — `decideAutoOpen`'s `confirm`.
+   *
+   * SEPARATE FROM `chosen` BECAUSE THE TWO ARRIVALS ARE NOT THE SAME EVENT.
+   * Reaching such a promotion from the list means the listener has already
+   * tapped it, and that tap IS the entry (the list's own form submits on it).
+   * Reaching it from a link means no act has happened yet, so one is owed —
+   * and `chosen` cannot express the difference, because it is set on both.
+   * Folding them into one value and guessing from `sending` was the first
+   * attempt: the guess is wrong for one render between the tap and the
+   * action starting, and what renders in that gap is an "Enter" button under
+   * an entry already on its way.
+   *
+   * NEVER SET TOGETHER WITH `chosen`. `decideAutoOpen` answers `open` or
+   * `confirm`, never both, and the only way off this screen is "Outras
+   * promoções", which clears it before the list can set `chosen`.
+   */
+  const [linked, setLinked] = useState<WidgetPromotion | null>(null);
   const [screen, setScreen] = useState(0);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -107,8 +135,13 @@ export function EnterPromotionPanel({
    *
    * THE DECISION ITSELF IS `decideAutoOpen` (promotion-mapping.ts), not
    * written out here, so it is one function a test can call rather than a
-   * branch only a browser exercises. Its three outcomes:
-   *   - `open` — set as `chosen`, exactly what clicking the list entry does;
+   * branch only a browser exercises. Its four outcomes:
+   *   - `open` — set as `chosen`, exactly what clicking the list entry does.
+   *     A promotion with a WALK: consent, then whatever it asks;
+   *   - `confirm` — a promotion with nothing left to ask this listener, which
+   *     has no walk to draw (Block 30d, fix round 3). Set as `linked`, and the
+   *     screen that renders is one button over the rules. NOT `chosen`, and
+   *     not an entry on load: see `linked`'s own comment above;
    *   - `show-list` — an ALREADY-ENTERED match. Do nothing: `chosen` stays
    *     null, and the fall-through render below already shows this exact
    *     promotion, disabled, with `alreadyEntered` on screen — which answers
@@ -133,6 +166,13 @@ export function EnterPromotionPanel({
       if (decision.action === 'open') {
         setChosen(decision.promotion);
         setScreen(0);
+        return;
+      }
+      // Block 30d, fix round 3. A promotion with nothing left to ask: one
+      // screen, one button, no walk. The decision is `decideAutoOpen`'s, not
+      // this effect's, for the reason its docblock gives.
+      if (decision.action === 'confirm') {
+        setLinked(decision.promotion);
         return;
       }
       if (decision.action === 'show-list') return;
@@ -176,14 +216,25 @@ export function EnterPromotionPanel({
    * whole-branch review as the consent defect, one step further in: the
    * message below is gated on `state.status === 'refused' && (last || screen
    * === flagged)`, and `last` depends only on the CHOSEN PROMOTION'S OWN
-   * screen count — nothing the earlier fix resets. A promotion asking for
-   * nothing but consent has exactly one screen, so `last` is true on that
-   * screen's very first render, before the listener has touched anything on
-   * it. Without this guard, choosing such a promotion right after a refusal
-   * on a different one would show "Faltou alguma coisa. Volte e confira suas
-   * respostas." under rules the listener has not even finished reading — the
-   * precise shape of refusal-nobody-earned this whole block exists to close,
-   * reopened by the one piece of state that cannot be reset directly.
+   * screen count — nothing the earlier fix resets. Without this guard, a
+   * refusal earned on one promotion shows up on the LAST screen of the next
+   * one the listener opens, before they have touched anything on it: "Faltou
+   * alguma coisa. Volte e confira suas respostas." under a field nobody has
+   * had the chance to get wrong — the precise shape of refusal-nobody-earned
+   * this whole block exists to close, reopened by the one piece of state that
+   * cannot be reset directly.
+   *
+   * IT USED TO BE REACHABLE ON THE FIRST RENDER, and Block 30d, D10 is what
+   * changed that rather than any fix. A promotion asking for nothing but
+   * consent had exactly one screen, so `last` was true immediately. Such a
+   * promotion is now the fast path (`fastEntry` below): it draws no walk at
+   * all, so the earliest a stale refusal can surface is a screen the listener
+   * walked to. The guard is unchanged and still load-bearing — what shrank is
+   * how quickly the defect appears without it, not whether it does.
+   *
+   * AND IT GUARDS THE LIST TOO, since the fast path has no screen of its own
+   * to put a message on: see the `fastEntry && state.status === 'refused'`
+   * branch in the list render below.
    *
    * RECORDED, NOT CLEARED — the same move `identify-form.tsx`'s `spentVerify`
    * makes for a verification result the visitor has abandoned: since `state`
@@ -212,17 +263,122 @@ export function EnterPromotionPanel({
     setFlagged(target);
   }, [state, handledRefusal, screens, fields, answers, chosen]);
 
+  /**
+   * Block 30d, D8/D10. A promotion this listener has nothing left to answer
+   * for. THE WALK IS SKIPPED RATHER THAN WALKED FAST: the list entry below is
+   * a form of its own, and this flag is what stops the walk from rendering for
+   * the half-tick between that submission and its answer -- without it the
+   * consent screen the owner ruled out of this path would FLASH, which is the
+   * defect written the slow way.
+   */
+  const fastEntry = chosen !== null && needsNoWalk(chosen.steps);
+
+  /**
+   * Whichever promotion the confirmation below is about. Exactly one of these
+   * is ever set (see `linked`'s own comment), so this is a choice between a
+   * value and null rather than between two candidates.
+   */
+  const agreedTo = chosen ?? linked;
+
   if (state.status === 'entered' || state.status === 'declined') {
     return (
       <Shell title={t('enterAPromotion')} onClose={onClose} publicKey={publicKey}>
         <p className="text-sm" data-testid="widget-promotion-done">
           {state.status === 'entered' ? t('entryRecorded') : t('entryNotRecorded')}
         </p>
+        {/* THE RULES, STILL REACHABLE. On the fast path this is the only place
+            the listener can read what they agreed to, because no consent
+            screen was drawn -- the agreement was the tap. Rendered on the
+            walk's confirmation too rather than only on the fast one: a second
+            chance to read the text is not a thing to withhold, and one branch
+            is one thing to keep true. Not on `declined`, where there is no
+            agreement to show the terms of. */}
+        {state.status === 'entered' && agreedTo ? (
+          <>
+            <p className="text-sm font-medium">{t('theRulesYouAgreedTo')}</p>
+            <div
+              className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-md border p-3 text-sm"
+              data-testid="widget-promotion-rules"
+            >
+              {agreedTo.rules}
+            </div>
+          </>
+        ) : null}
       </Shell>
     );
   }
 
-  if (chosen) {
+  /**
+   * Block 30d, fix round 3 (D8, D10). THE SCREEN A LINK LANDS ON when the
+   * promotion it named asks this listener nothing.
+   *
+   * Block 19a's contract is that the link opens the widget at the panel it was
+   * minted for. Before this, such a link fell through to the promotion LIST —
+   * `fastEntry` turns the walk off, and the only fast entry point was the list
+   * row's own form, which a link performs no tap on. The listener got a
+   * generic list for a link that named one promotion.
+   *
+   * ONE BUTTON, AND NO CHECKBOX. The rules are on screen and pressing the
+   * button agrees to them, which is the same meaning the list's tap carries
+   * (0268's `web-widget-entry` origin records exactly that on both). A
+   * checkbox here would be the rules screen the owner ruled off this path,
+   * reintroduced for the one arrival that happens to have room for it.
+   *
+   * NOT AN ENTRY ON RENDER. This screen writes nothing until the button is
+   * pressed — see `decideAutoOpen` for why a door that writes a participation
+   * must not fire on a page load.
+   *
+   * THE REFUSAL IS RENDERED WITHOUT A `refusalFor` GUARD, and that is not an
+   * omission. This screen is reachable only from the auto-open effect, which
+   * runs once per mount while `state` is still IDLE, and the only way off it
+   * is the button below or "Outras promoções" (which never brings the listener
+   * back). So any refusal in `state` here was produced by this screen's own
+   * submission; there is no stale one to exclude, and a guard that cannot fire
+   * is a guard nobody can break.
+   */
+  if (linked) {
+    return (
+      <Shell title={linked.name} onClose={() => setLinked(null)} closeLabel={t('otherPromotions')}>
+        <form action={submit} className="flex flex-col gap-3">
+          <input type="hidden" name="publicKey" value={publicKey} />
+          <input type="hidden" name="promotionId" value={linked.id} />
+          <input type="hidden" name="consent" value="on" />
+          <input type="hidden" name="fields" value="{}" />
+          <input type="hidden" name="answers" value="[]" />
+
+          {linked.artUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={linked.artUrl} alt="" className="w-full rounded" />
+          ) : null}
+          <div
+            className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-md border p-3 text-sm"
+            data-testid="widget-promotion-rules"
+          >
+            {linked.rules}
+          </div>
+
+          {state.status === 'refused' ? (
+            <p className="text-sm text-destructive" data-testid="widget-promotion-error">
+              {refusalMessage(t, state.reason)}
+            </p>
+          ) : null}
+
+          <div className="flex gap-2">
+            <Button
+              key="enter-linked"
+              type="submit"
+              disabled={sending}
+              data-testid="widget-promotion-send"
+            >
+              {sending ? t('sending') : t('enterNow')}
+            </Button>
+          </div>
+        </form>
+      </Shell>
+    );
+  }
+
+  if (chosen && !fastEntry) {
     const current = screens[screen] ?? [];
     const last = screen === screens.length - 1;
 
@@ -374,10 +530,11 @@ export function EnterPromotionPanel({
               line ended up under the rules AND under the address on
               2026-08-11. The second half (`refusalFor`) is a refusal from a
               DIFFERENT promotion the listener has since left; without it, a
-              single-screen promotion chosen right after a refusal reads
-              `last` as true immediately and shows a stale message about
-              rules it has not finished displaying — see `refusalFor`'s own
-              comment above. */}
+              refusal earned on one promotion surfaces on the LAST screen of
+              the next one the listener opens, under a step nobody has had the
+              chance to get wrong yet — see `refusalFor`'s own comment above,
+              which also records that this used to be reachable on a
+              promotion's FIRST render and why 0268 is what stopped that. */}
           {state.status === 'refused' && refusalFor === chosen.id && (last || screen === flagged) ? (
             <p className="text-sm text-destructive" data-testid="widget-promotion-error">
               {refusalMessage(t, state.reason)}
@@ -467,6 +624,20 @@ export function EnterPromotionPanel({
         </p>
       ) : null}
 
+      {/* A FAST-PATH REFUSAL HAS NOWHERE ELSE TO GO. The walk renders its own
+          message on the screen that submitted; this path has no screen, so
+          without this line a refused tap would look like a tap that did
+          nothing. Gated on `fastEntry` and on `refusalFor` naming the
+          promotion that was tapped, for the reason `refusalFor` exists at all:
+          a refusal left in `state` by a WALK the listener has since backed out
+          of must not surface here, where it would be a message about nothing
+          on screen. */}
+      {fastEntry && state.status === 'refused' && refusalFor === chosen?.id ? (
+        <p className="text-sm text-destructive" data-testid="widget-promotion-error">
+          {refusalMessage(t, state.reason)}
+        </p>
+      ) : null}
+
       {list.status === 'ready' ? (
         list.promotions.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="widget-promotion-none">
@@ -474,9 +645,97 @@ export function EnterPromotionPanel({
           </p>
         ) : (
           <ul className="flex flex-col gap-2" data-testid="widget-promotion-list">
-            {list.promotions.map((promotion) => (
+            {list.promotions.map((promotion) => {
+              /**
+               * Block 30d, D8/D10. NOTHING LEFT TO ASK MEANS THIS ENTRY IS
+               * TAKEN FROM THE LIST. `needsNoWalk` reads the step list the
+               * DOOR computed and sent (`widget_promotions`), so what the
+               * browser skips is what the door already decided it would not
+               * ask -- and the door recomputes it again on the way in, which
+               * is why this is a courtesy and not a guard.
+               *
+               * A FORM OF ITS OWN RATHER THAN A CLICK THAT CALLS THE ACTION:
+               * the walk posts through `<form action={submit}>` and so does
+               * this, so there is one shape of submission in this file rather
+               * than two.
+               *
+               * `consent` IS SENT AS "on" BECAUSE THE TAP IS THE AGREEMENT --
+               * the owner's ruling of 2026-08-21. The rules text is not
+               * withheld: the confirmation renders it (see the entered branch
+               * above).
+               *
+               * `marketingConsent` IS THE ONE FIELD THE WALK POSTS AND THIS
+               * DOES NOT, because its checkbox lives on the consent screen and
+               * this path draws none. THE DOOR DOES NOT READ THAT ABSENCE AS A
+               * DECLINE: 0268 writes no `whatsapp_marketing` row at all on this
+               * path for a listener who has none, on the owner's ruling of
+               * 2026-08-21 (fix round 1). Entering agrees to the RULES -- the
+               * act carries that meaning, which is what the tap above is -- and
+               * says nothing whatever about marketing, so there is nothing to
+               * record and the listener stays askable on their next walk.
+               *
+               * THE TWO KEYS, for the reason the send/next pair further up
+               * this file spells out at length: two elements sharing a slot
+               * without them are one element whose props changed, and the last
+               * time this file let that happen a button that said "Next"
+               * submitted the form.
+               */
+              const label = (
+                <>
+                  {promotion.thumbUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={promotion.thumbUrl} alt="" width={40} height={40} className="rounded" />
+                  ) : null}
+                  <span className="flex flex-col">
+                    <span className="text-sm font-medium">{promotion.name}</span>
+                    {promotion.alreadyEntered ? (
+                      <span className="text-xs text-muted-foreground">{t('alreadyEntered')}</span>
+                    ) : null}
+                  </span>
+                </>
+              );
+              const entryClassName =
+                'flex w-full items-center gap-2 rounded-md border p-2 text-left hover:bg-accent disabled:opacity-60';
+
+              if (needsNoWalk(promotion.steps)) {
+                return (
+                  <li key={promotion.id}>
+                    <form key="enter" action={submit}>
+                      <input type="hidden" name="publicKey" value={publicKey} />
+                      <input type="hidden" name="promotionId" value={promotion.id} />
+                      <input type="hidden" name="consent" value="on" />
+                      <input type="hidden" name="fields" value="{}" />
+                      <input type="hidden" name="answers" value="[]" />
+                      <button
+                        type="submit"
+                        /*
+                          `chosen` IS SET AND THE WALK STILL DOES NOT RENDER:
+                          `fastEntry` above turns it off for exactly this
+                          promotion. It is set because the confirmation needs
+                          the rules text, and this is the last render that
+                          knows which promotion the listener tapped.
+
+                          NOTHING ELSE IS RESET HERE, unlike the walk's own
+                          handler below: consent, fields, answers, flagged and
+                          refusalFor all describe a WALK, and this promotion
+                          has none for them to be wrong about. The hidden
+                          inputs above are the whole of what this posts.
+                        */
+                        onClick={() => setChosen(promotion)}
+                        disabled={promotion.alreadyEntered || sending}
+                        className={entryClassName}
+                      >
+                        {label}
+                      </button>
+                    </form>
+                  </li>
+                );
+              }
+
+              return (
               <li key={promotion.id}>
                 <button
+                  key="open"
                   type="button"
                   onClick={() => {
                     // Block 20a, whole-branch review. Block 17c's own defect:
@@ -521,21 +780,13 @@ export function EnterPromotionPanel({
                     setRefusalFor(null);
                   }}
                   disabled={promotion.alreadyEntered}
-                  className="flex w-full items-center gap-2 rounded-md border p-2 text-left hover:bg-accent disabled:opacity-60"
+                  className={entryClassName}
                 >
-                  {promotion.thumbUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={promotion.thumbUrl} alt="" width={40} height={40} className="rounded" />
-                  ) : null}
-                  <span className="flex flex-col">
-                    <span className="text-sm font-medium">{promotion.name}</span>
-                    {promotion.alreadyEntered ? (
-                      <span className="text-xs text-muted-foreground">{t('alreadyEntered')}</span>
-                    ) : null}
-                  </span>
+                  {label}
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )
       ) : null}
@@ -570,40 +821,43 @@ function Question({
 }) {
   const t = useTranslations('widget');
 
-  if (step.questionKind === 'ESSAY') {
-    return (
-      <label className="flex flex-col gap-1 text-sm">
-        {t('yourAnswer')}
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          maxLength={2000}
-          className="rounded-md border bg-background p-2 text-sm"
-          data-testid="widget-promotion-answer"
-        />
-      </label>
-    );
-  }
-
   return (
-    <fieldset className="flex flex-col gap-2" data-testid="widget-promotion-options">
-      <legend className="text-sm">{t('chooseOne')}</legend>
-      {options.map((option) => (
-        <label key={option.id} className="flex items-center gap-2 text-sm">
+    <>
+      <p className="text-base font-medium" data-testid="widget-question-prompt">
+        {step.prompt}
+      </p>
+      {step.questionKind === 'ESSAY' ? (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('yourAnswer')}
           <input
-            type="radio"
-            name="option"
-            value={option.id}
-            checked={value === option.id}
-            onChange={() => onChange(option.id)}
-            className="h-4 w-4 border-input"
-            data-testid={`widget-promotion-option-${option.id}`}
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            maxLength={2000}
+            className="rounded-md border bg-background p-2 text-sm"
+            data-testid="widget-promotion-answer"
           />
-          <span>{option.label}</span>
         </label>
-      ))}
-    </fieldset>
+      ) : (
+        <fieldset className="flex flex-col gap-2" data-testid="widget-promotion-options">
+          <legend className="text-sm">{t('chooseOne')}</legend>
+          {options.map((option) => (
+            <label key={option.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="option"
+                value={option.id}
+                checked={value === option.id}
+                onChange={() => onChange(option.id)}
+                className="h-4 w-4 border-input"
+                data-testid={`widget-promotion-option-${option.id}`}
+              />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+    </>
   );
 }
 

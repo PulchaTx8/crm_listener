@@ -331,14 +331,23 @@ values
 -- which is the exact case assertion 13 exists to pin: sending the hashtag is
 -- asking to take part, whether or not the widget's own list would ever have
 -- shown it.
+--
+-- IT ASKS FOR ONE FIELD, and that is Block 30d (D8, 0267) rather than
+-- decoration: a promotion with nothing left to ask of the listener is now
+-- ENTERED the moment the hashtag arrives, answering `recorded` and carrying no
+-- purpose or promotion_id at all -- so without a requested field the assertion
+-- below would stop testing the match order it was written for. `city` and not
+-- `full_name`, because apply_member_creation fills full_name from the WhatsApp
+-- profile name and a newcomer would satisfy that one immediately. The fast
+-- path itself is covered by supabase/tests/73_fast_entry.test.sql.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
-   whatsapp_enabled, hashtag, rules)
+   whatsapp_enabled, hashtag, rules, requested_fields)
 values
   ('00000000-0000-0000-0000-000000000609', '00000000-0000-0000-0000-000000000601',
    '00000000-0000-0000-0000-000000000602', 'Promo Station A com regras',
    now() - interval '1 day', now() + interval '30 days',
-   true, '#GANHEJA', 'Regulamento completo desta promocao.');
+   true, '#GANHEJA', 'Regulamento completo desta promocao.', '{city}');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000000608", "role": "authenticated"}';
@@ -467,14 +476,24 @@ values
   ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000612',
    'WHATSAPP', '444444444444446', true);
 
+-- IT ASKS FOR ONE FIELD, and that is what makes the assertion below about the
+-- no_installation gate at all. Since Block 30d (D8, 0267, fix round 1) the
+-- fast path sits ABOVE that gate, because the gate exists for the LINK and the
+-- fast path mints none: a listener with nothing left to answer is entered here
+-- and never reaches it. What still needs the widget -- a promotion asking for
+-- a field this listener has not got -- is what still meets it, and that is the
+-- case this fixture is for. `city` and not `full_name`, because
+-- apply_member_creation fills full_name from the WhatsApp profile name and a
+-- newcomer would satisfy that one on arrival. The entering-without-an-
+-- installation half is covered by supabase/tests/73_fast_entry.test.sql.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
-   whatsapp_enabled, hashtag, rules)
+   whatsapp_enabled, hashtag, rules, requested_fields)
 values
   ('00000000-0000-0000-0000-000000000613', '00000000-0000-0000-0000-000000000601',
    '00000000-0000-0000-0000-000000000612', 'Promo Station D sem widget',
    now() - interval '1 day', now() + interval '30 days',
-   true, '#SEMWIDGET', 'Regulamento da promocao sem widget.');
+   true, '#SEMWIDGET', 'Regulamento da promocao sem widget.', '{city}');
 
 -- A second helper, taking the phone_number_id as an argument: Station D's
 -- integration is a different row from Station A's, and pg_temp.ingest_hashtag

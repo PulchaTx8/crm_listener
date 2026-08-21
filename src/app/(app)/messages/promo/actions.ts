@@ -7,12 +7,19 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import {
   clearSystemMessageSchema,
+  listenerLocaleFormSchema,
   serviceHashtagsFormSchema,
   systemMessageFormSchema,
 } from '@/schemas/templates';
-import { clearSystemMessage, setServiceHashtags, setSystemMessage } from '@/services/templates';
+import {
+  clearSystemMessage,
+  setListenerLocale,
+  setServiceHashtags,
+  setSystemMessage,
+} from '@/services/templates';
 import {
   describeClearMessageError,
+  describeListenerLocaleError,
   describeServiceHashtagsError,
   describeTemplateWriteError,
 } from '../errors';
@@ -167,6 +174,55 @@ export async function saveServiceHashtagsAction(
     return {
       status: 'error',
       message: describeServiceHashtagsError(cause, await getTranslations('templates')),
+    };
+  }
+}
+
+/**
+ * One state for the listener-language card's single form — the same shape
+ * ServiceHashtagsState carries for its own, and for the same reason: an
+ * empty choice IS how the language is cleared here (set_listener_locale's
+ * own rule), so clearing is just another save, never a second action.
+ */
+export type ListenerLocaleState =
+  | { status: 'idle' }
+  | { status: 'saved' }
+  | { status: 'error'; message: string };
+
+/**
+ * Saves the Station's listener language through `set_listener_locale`
+ * (0265). The Station is posted (`companyId`), not inferred, for the same
+ * reason every per-Station write in this file is: the door re-checks
+ * `templates.manage` against exactly this Station, so naming one the caller
+ * does not hold the permission in is refused there rather than trusted here.
+ */
+export async function saveListenerLocaleAction(
+  _prev: ListenerLocaleState,
+  formData: FormData,
+): Promise<ListenerLocaleState> {
+  const parsed = listenerLocaleFormSchema.safeParse({
+    companyId: formData.get('companyId'),
+    locale: formData.get('locale'),
+  });
+
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the language.' };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    await setListenerLocale(parsed.data, token);
+    revalidatePath('/messages/promo');
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error(
+      { err: cause, companyId: parsed.data.companyId },
+      'save the listener locale failed',
+    );
+    return {
+      status: 'error',
+      message: describeListenerLocaleError(cause, await getTranslations('templates')),
     };
   }
 }

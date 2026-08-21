@@ -131,12 +131,39 @@ const PHANTOM_ENTRY_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${PHANTOM_ENTRY_VIS
 const PHANTOM_ENTRY_VISITOR_NAME = 'Listener Whose Next Button Writes Early';
 
 /**
- * Block 29c, Task 10. The marketing checkbox's three-way rule, end to end —
- * a seventh phone, same per-number reason as the six before it.
+ * Block 29c, Task 10. The marketing checkbox's rule, end to end — a seventh
+ * phone, same per-number reason as the six before it. Three arms when 0234
+ * wrote it; four since 0268, and this journey walks the two promotions that
+ * still show the box.
  */
 const MARKETING_CONSENT_VISITOR_LOCAL_PHONE = `71${String(stamp).slice(-9)}`;
 const MARKETING_CONSENT_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${MARKETING_CONSENT_VISITOR_LOCAL_PHONE}`;
 const MARKETING_CONSENT_VISITOR_NAME = 'Listener Who Ticks Once';
+
+/**
+ * Block 30d, Task 6. The listener whose browser disagrees with the Station —
+ * an eighth phone, same per-number reason as the seven before it.
+ */
+const LOCALE_VISITOR_LOCAL_PHONE = `81${String(stamp).slice(-9)}`;
+const LOCALE_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${LOCALE_VISITOR_LOCAL_PHONE}`;
+const LOCALE_VISITOR_NAME = 'Listener Whose Browser Disagrees With The Station';
+
+/**
+ * Block 30d, Task 9 (D8, D10). The listener a promotion asks nothing of — a
+ * ninth phone, same per-number reason as the eight before it.
+ */
+const FAST_ENTRY_VISITOR_LOCAL_PHONE = `91${String(stamp).slice(-9)}`;
+const FAST_ENTRY_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${FAST_ENTRY_VISITOR_LOCAL_PHONE}`;
+const FAST_ENTRY_VISITOR_NAME = 'Listener Who Is Asked Nothing';
+
+/**
+ * Block 30d, Task 9. THE ONLY PROMOTION IN THIS FILE THAT DECLARES NO
+ * REQUESTED FIELD AND NO QUESTION, which is what makes it the fast path: a
+ * step list of `consent` alone, for any listener at all. The other three carry
+ * a requested field each precisely so that they do NOT take this path — see
+ * the seeding comment on the two consent-switch promotions below.
+ */
+const FAST_ENTRY_PROMOTION_NAME = `Widget Journey Promotion No Walk ${stamp}`;
 
 /** Names the outbox row this run's code arrives on, and nobody else's. */
 const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
@@ -157,6 +184,14 @@ const LISTENER_NOTE = 'toca pra minha mae, ela ouve todo dia';
 
 /** Block 17c. Without rules a promotion does not appear in the widget at all (D3). */
 const PROMOTION_RULES = 'Promoção válida para maiores de 18 anos. Um cupom por pessoa.';
+
+/**
+ * Block 30d, item 1a. The quiz question's own text, seeded through
+ * `save_promotion_question` below and asserted on screen further down. Lifted
+ * to a constant read by both sites so the two cannot drift into a test that
+ * passes against a sentence that merely looks like the one the door sent.
+ */
+const QUESTION_PROMPT = 'Qual é a capital do estado?';
 
 /**
  * The Block 17c fixture promotion's own name — named here, not just inlined
@@ -356,7 +391,11 @@ async function identifyInFrame(
   // a number that looked right, and the country code was missing everywhere
   // downstream.
   await expect(widget.getByTestId('widget-phone-preview')).toContainText(phone);
-  await widget.getByRole('button', { name: 'Send code' }).click();
+  // PORTUGUESE: Block 30d/D7 makes the fixture Station's chosen
+  // `listener_locale` ('pt', seeded in `beforeAll`) win over this browser's
+  // pinned `en-US`, for every visitor to this installation -- this helper
+  // included.
+  await widget.getByRole('button', { name: 'Enviar código' }).click();
 
   // Either the second screen or a refusal — whichever arrives, so a refusal is
   // reported as itself rather than as a timeout waiting for the screen it
@@ -380,7 +419,7 @@ async function identifyInFrame(
   await expect(widget.locator('#widget-code')).toHaveValue('');
 
   await widget.locator('#widget-code').fill(code);
-  await widget.getByRole('button', { name: 'Confirm' }).click();
+  await widget.getByRole('button', { name: 'Confirmar' }).click();
 
   // THE MENU, INSIDE THE FRAME. Reaching it means the whole chain worked in a
   // third-party context: the action wrote the cookie, the browser STORED it (a
@@ -496,6 +535,20 @@ test.beforeAll(async ({}, testInfo) => {
   });
   if (upsertError) throw new Error(`could not seed the installation: ${upsertError.message}`);
 
+  // Block 30d, Task 6, D7. THIS Station's own choice, seeded once here rather
+  // than only right before the test that needs it, because every test in this
+  // file shares this one installation -- the same reason `journeyCompanyId`
+  // below is set once. AS THE OWNER, same client the template registration
+  // above already signed in: set_listener_locale is gated on
+  // templates.manage, which a platform admin does not hold (Organization
+  // membership is what has_permission reads, and a platform admin is not a
+  // member of anything).
+  const { error: localeError } = await ownerClient.rpc('set_listener_locale', {
+    p_company_id: companyId,
+    p_locale: 'pt',
+  });
+  if (localeError) throw new Error(`could not seed the listener locale: ${localeError.message}`);
+
   // Block 17b reads the request back from this Station, and the cooldown stays
   // at its default of zero: this journey makes one request, and a ceiling it
   // never reaches would prove nothing while making the test's own second run
@@ -550,7 +603,7 @@ test.beforeAll(async ({}, testInfo) => {
   const { error: questionError } = await ownerClient.rpc('save_promotion_question', {
     p_promotion_id: seededPromotionId,
     p_kind: 'QUIZ',
-    p_prompt: 'Qual é a capital do estado?',
+    p_prompt: QUESTION_PROMPT,
     // Required for a question with alternatives (promotion_questions_list_fields)
     // even on a promotion that only converses on the web — a one-door assumption
     // still standing, and noted rather than fixed as a passenger here.
@@ -563,14 +616,29 @@ test.beforeAll(async ({}, testInfo) => {
   });
   if (questionError) throw new Error(`could not seed the quiz: ${questionError.message}`);
 
-  // Block 20a, whole-branch review. TWO MORE PROMOTIONS, consent only — no
-  // requested fields, no question — because the journey below never walks
-  // past the consent screen of either one. It exists to prove what carries
-  // across a promotion SWITCH, not to prove a promotion can be entered; that
-  // is already proved above and by the missing-field case below. Seeded AFTER
+  // Block 20a, whole-branch review. TWO MORE PROMOTIONS, each asking for ONE
+  // requested field and no question, because the journeys below need their
+  // consent screen to exist at all. It exists to prove what carries across a
+  // promotion SWITCH, not to prove a promotion can be entered; that is already
+  // proved above and by the missing-field case below. Seeded AFTER
   // `seededPromotionId` is read back, on purpose: that lookup has no filter
   // beyond `company_id`, and seeding these two first would leave it free to
   // pick either one instead of Block 17c's own.
+  //
+  // BLOCK 30d, TASK 9 GAVE THEM THAT FIELD, and both halves of the choice
+  // matter. These two were consent only until 0268; from 0268 a promotion with
+  // no field and no question is the FAST PATH — `needsNoWalk`
+  // (promotion-mapping.ts) — and the panel submits it straight from the list
+  // with no consent screen drawn, so all three journeys below would have found
+  // no checkbox to tick. A field restores the screen without weakening
+  // anything they assert: none of them is about what the field is.
+  //
+  // TWO DIFFERENT FIELDS, NOT ONE. The marketing journey enters A and then B
+  // with the same listener; had both asked for `city`, filling it on A would
+  // have satisfied B (`whatsapp_conversation_steps` asks only for what a
+  // listener has not got), B would have become the fast path for that listener
+  // alone, and that journey's second consent screen would have vanished
+  // mid-test.
   const { error: promotionAError } = await ownerClient.rpc('create_promotion', {
     p_company_id: companyId,
     p_name: CONSENT_SWITCH_PROMOTION_A_NAME,
@@ -578,6 +646,7 @@ test.beforeAll(async ({}, testInfo) => {
     p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
     p_web_enabled: true,
     p_rules: PROMOTION_RULES,
+    p_requested_fields: ['city'],
   });
   if (promotionAError) {
     throw new Error(`could not seed the consent-switch promotion A: ${promotionAError.message}`);
@@ -590,9 +659,28 @@ test.beforeAll(async ({}, testInfo) => {
     p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
     p_web_enabled: true,
     p_rules: PROMOTION_RULES,
+    p_requested_fields: ['address'],
   });
   if (promotionBError) {
     throw new Error(`could not seed the consent-switch promotion B: ${promotionBError.message}`);
+  }
+
+  // Block 30d, Task 9 (D8, D10). THE PROMOTION THAT ASKS NOTHING, and the only
+  // one in this file: no requested field and no question, so
+  // `whatsapp_conversation_steps` answers `consent` and nothing else for every
+  // listener alive. That is the pair the fast path is a fact about, and it is
+  // why this journey needs a promotion of its own rather than a listener of
+  // its own on an existing one.
+  const { error: fastPromotionError } = await ownerClient.rpc('create_promotion', {
+    p_company_id: companyId,
+    p_name: FAST_ENTRY_PROMOTION_NAME,
+    p_starts_at: new Date(Date.now() - 3_600_000).toISOString(),
+    p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    p_web_enabled: true,
+    p_rules: PROMOTION_RULES,
+  });
+  if (fastPromotionError) {
+    throw new Error(`could not seed the no-walk promotion: ${fastPromotionError.message}`);
   }
 
   // THE PER-IP HOURLY BUCKETS, CLEARED, and they are the one piece of state
@@ -756,14 +844,15 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   // count of two passed before this change as well, which is the shape of
   // assertion that proves nothing.
   //
-  // ENGLISH, because playwright.config.ts pins locale: 'en-US' for the whole
-  // suite and this visitor has no profile, cookie or Accept-Language to
-  // resolve anything else from. `exact: true` is load-bearing: without it
-  // "Back" matches "Back to the menu" by substring and the first assertion
-  // reports two.
-  await expect(widget.getByRole('button', { name: 'Back', exact: true })).toHaveCount(1);
+  // PORTUGUESE, not the 'en-US' playwright.config.ts pins for the whole
+  // suite: Block 30d/D7 makes this Station's chosen `listener_locale`
+  // ('pt', seeded in `beforeAll`) win over Accept-Language for every visitor
+  // to this installation, this one included. `exact: true` is load-bearing:
+  // without it "Voltar" matches "Voltar ao menu" by substring and the first
+  // assertion reports two.
+  await expect(widget.getByRole('button', { name: 'Voltar', exact: true })).toHaveCount(1);
   await expect(
-    widget.getByRole('button', { name: 'Back to the menu', exact: true }),
+    widget.getByRole('button', { name: 'Voltar ao menu', exact: true }),
   ).toHaveCount(1);
 
   await widget.getByTestId('widget-song-send').click();
@@ -798,18 +887,19 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   // own cookie would skip.
   // ---------------------------------------------------------------------------
   await widget.getByTestId('widget-promotion-panel').waitFor({ state: 'detached' }).catch(() => {});
-  await widget.getByRole('button', { name: 'Back' }).first().click();
+  await widget.getByRole('button', { name: 'Voltar' }).first().click();
   await expect(widget.getByTestId('widget-menu')).toBeVisible({ timeout: 30_000 });
 
   await widget.getByTestId('widget-enter-promotion').click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
 
   // BY NAME, NOT `.first()`. Block 20a's whole-branch review added two more
-  // promotions to this same fixture pool (`CONSENT_SWITCH_PROMOTION_A/B`),
-  // seeded with the same `ends_at` offset as this one -- `widget_promotions`
-  // (0186) orders `by p.ends_at` alone, so a tie between three rows is not
-  // something Postgres promises to break the same way on every run. This walk
-  // needs the field and quiz question only `PRIMARY_PROMOTION_NAME` has.
+  // promotions to this same fixture pool (`CONSENT_SWITCH_PROMOTION_A/B`) and
+  // Block 30d added a fourth (`FAST_ENTRY_PROMOTION_NAME`), all seeded with the
+  // same `ends_at` offset as this one -- `widget_promotions` (0186) orders `by
+  // p.ends_at` alone, so a tie between four rows is not something Postgres
+  // promises to break the same way on every run. This walk needs the quiz
+  // question only `PRIMARY_PROMOTION_NAME` has.
   await widget
     .getByTestId('widget-promotion-list')
     .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
@@ -830,6 +920,11 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   await widget.getByTestId('widget-promotion-field-gender').selectOption('F');
   await widget.getByTestId('widget-promotion-next').click();
 
+  // Block 30d, item 1a. THE QUESTION'S OWN WORDS, ABOVE THE ALTERNATIVES --
+  // before 0264 the step carried only the question's id and kind, and this
+  // screen drew a list of options under nothing at all.
+  await expect(widget.getByTestId('widget-question-prompt')).toHaveText(QUESTION_PROMPT);
+
   // THE ALTERNATIVES, WHICH IS THE REPAIR. Before it, this screen was a text
   // box: the listener typed prose, participation_answers_shape refused it and
   // the panel said "something went wrong".
@@ -843,7 +938,7 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   // THE DATABASE, NOT THE SCREEN.
   const { data: entries, error: entryError } = await admin
     .from('participations')
-    .select('source, status, created_by, member_id')
+    .select('source, status, created_by, member_id, promotion_id')
     .eq('company_id', journeyCompanyId)
     .limit(1);
 
@@ -859,13 +954,20 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   // spec, and the owner's ruling that WhatsApp will follow).
   const { data: consents } = await admin
     .from('member_consents')
-    .select('consent_type, granted, origin')
+    .select('consent_type, granted, origin, promotion_id')
     .eq('member_id', entry!.member_id)
     .eq('consent_type', 'rules');
 
   expect(consents?.length, 'agreeing to the rules left a consent row').toBe(1);
   expect(consents?.[0]?.granted).toBe(true);
   expect(consents?.[0]?.origin).toBe('web-widget');
+  // Block 30d, D10. THE WALKED ROW NAMES ITS PROMOTION TOO — the half of that
+  // decision that is easy to forget, because the fast path is the visible one.
+  // Read from the participation rather than from a seeded id, so the two
+  // cannot be made to agree by a test that fetched the same wrong value twice.
+  expect(consents?.[0]?.promotion_id, 'the rules consent names the promotion').toBe(
+    entry!.promotion_id,
+  );
 
   // The field the listener typed reached their record, through the shared
   // writer 0171 extracted rather than a third copy of the eight-way mapping.
@@ -1002,12 +1104,13 @@ test('a listener who skips a field is refused, and the panel jumps back to it', 
   await widget.getByTestId('widget-enter-promotion').click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
 
-  // BY NAME, NOT `.first()`. This walk needs the requested field and the quiz
-  // question that only `PRIMARY_PROMOTION_NAME` carries -- the two other
-  // promotions the fixture seeds are consent-only. `.first()` relied on
-  // `widget_promotions` (0186) ordering the list `by p.ends_at` with all
-  // three promotions sharing that column's value, which Postgres does not
-  // promise to break ties on the same way twice.
+  // BY NAME, NOT `.first()`. This walk needs the QUIZ QUESTION that only
+  // `PRIMARY_PROMOTION_NAME` carries -- the other three promotions the fixture
+  // seeds have none, and one of them (`FAST_ENTRY_PROMOTION_NAME`) has no
+  // requested field either and would be entered on the tap. `.first()` relied
+  // on `widget_promotions` (0186) ordering the list `by p.ends_at` with every
+  // promotion sharing that column's value, which Postgres does not promise to
+  // break ties on the same way twice.
   await widget
     .getByTestId('widget-promotion-list')
     .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
@@ -1037,7 +1140,7 @@ test('a listener who skips a field is refused, and the panel jumps back to it', 
   await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
   await expect(widget.getByTestId('widget-promotion-error')).toBeVisible();
   await expect(widget.getByTestId('widget-promotion-error')).toContainText(
-    'Something is missing. Go back and check your answers.',
+    'Faltou alguma coisa. Volte e confira suas respostas.',
   );
 
   // AND STILL EMPTY -- the panel's own state surviving the round trip, not a
@@ -1088,7 +1191,7 @@ test("choosing a different promotion clears the previous one's agreement", async
   await widget.getByTestId('widget-promotion-consent').check();
   await expect(widget.getByTestId('widget-promotion-consent')).toBeChecked();
 
-  await widget.getByRole('button', { name: 'Other promotions' }).click();
+  await widget.getByRole('button', { name: 'Outras promoções' }).click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
 
   await widget
@@ -1110,15 +1213,23 @@ test("choosing a different promotion clears the previous one's agreement", async
  * can -- so a REFUSAL survives a promotion switch even after
  * consent/fields/answers/flagged do not.
  *
- * REACHABLE ONLY BECAUSE PROMOTION B HAS ONE SCREEN. The error message's gate
- * is `state.status === 'refused' && (last || screen === flagged)`, and `last`
- * is computed from the CHOSEN PROMOTION'S OWN screen count alone -- nothing
- * the consent fix touches. `CONSENT_SWITCH_PROMOTION_B_NAME` (consent only,
- * no requested fields, no question) has exactly one screen, so `last` is true
- * on that screen's very first render, before this listener has touched
- * anything on it. A multi-screen second promotion would leave `last` false at
- * screen 0 and this test would pass whether or not the fix existed -- which is
- * why it has to be this promotion and not a fresh one built for convenience.
+ * REACHABLE ONLY ON A SCREEN WHERE `last` IS TRUE. The error message's gate is
+ * `state.status === 'refused' && refusalFor === chosen.id && (last || screen
+ * === flagged)`, and `last` is computed from the CHOSEN PROMOTION'S OWN screen
+ * count alone -- nothing the consent fix touches. So this journey has to WALK
+ * promotion B to its last screen before the assertion means anything: stopping
+ * on B's consent screen would leave `last` false and the test would pass
+ * whether or not `refusalFor` existed.
+ *
+ * IT USED TO NEED NO WALK AT ALL, and Block 30d, Task 9 is why it does now.
+ * `CONSENT_SWITCH_PROMOTION_B_NAME` was consent only, which made it a
+ * one-screen promotion: `last` was true on its first render, before the
+ * listener touched anything. Since 0268 a promotion with nothing to ask is the
+ * FAST PATH -- entered from the list with no screen at all -- so a one-screen
+ * walk is not a thing that exists any more, and the fixture gained a requested
+ * field. The defect this test pins did not go away with it: a refusal left in
+ * `state` by promotion A still reaches B's last screen, which is the click
+ * below.
  *
  * PROMOTION A IS THE BLOCK 17c FIXTURE (a requested field plus a QUIZ), the
  * same one "a listener who skips a field is refused..." above uses, and for
@@ -1160,7 +1271,7 @@ test('a refusal on one promotion does not linger onto a different one', async ({
   // THE REFUSAL, ON SCREEN -- about the promotion it is actually about.
   await expect(widget.getByTestId('widget-promotion-error')).toBeVisible({ timeout: 30_000 });
 
-  await widget.getByRole('button', { name: 'Other promotions' }).click();
+  await widget.getByRole('button', { name: 'Outras promoções' }).click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
 
   await widget
@@ -1168,11 +1279,18 @@ test('a refusal on one promotion does not linger onto a different one', async ({
     .getByRole('button', { name: CONSENT_SWITCH_PROMOTION_B_NAME, exact: true })
     .click();
 
-  // THE ASSERTION THAT MATTERS: `last` is true here on the very first render
-  // of B's only screen, so before this fix `state.status === 'refused'` left
-  // over from promotion A was, on its own, enough to show A's message under
-  // B's rules.
   await expect(widget.getByTestId('widget-promotion-consent')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-consent').check();
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE ASSERTION THAT MATTERS: this is B's LAST screen, so `last` is true and
+  // the message's only remaining gate is `refusalFor`. Without it, the
+  // `refused` state left over from promotion A is, on its own, enough to show
+  // A's message under a field of B's that this listener has not even been
+  // given the chance to get wrong.
+  await expect(widget.getByTestId('widget-promotion-field-address')).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(widget.getByTestId('widget-promotion-error')).toHaveCount(0);
 });
 
@@ -1259,7 +1377,7 @@ test('an entry is recorded only when "Enter now" is pressed, never by "Next"', a
 
   await widget.getByTestId('widget-promotion-options').getByRole('radio').first().check();
 
-  await widget.getByRole('button', { name: 'Back', exact: true }).click();
+  await widget.getByRole('button', { name: 'Voltar', exact: true }).click();
   await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
   // Both fields keep what was entered -- the walk is browser state until the
   // end (this file's own header) -- so going back and forward answers nothing
@@ -1316,20 +1434,35 @@ test('a page on an origin the Station did not name cannot frame the widget at al
 });
 
 /**
- * Block 29c, Task 10. The widget's marketing checkbox, end to end — Task 9's
- * three-way rule (`widget_enter_promotion`, 0234): TICKED writes `true`,
- * ALWAYS; UNTICKED with no row yet writes `false`; UNTICKED with a row already
- * present writes NOTHING. The third arm is the Critical this block closed
- * (fix round 1, F23) and the one worth pinning here: a listener who does not
- * re-tick on a LATER promotion must not be read as withdrawing what they
- * already gave.
+ * Block 29c, Task 10. The widget's marketing checkbox, end to end —
+ * `widget_enter_promotion`, live on **0268**: TICKED writes `true`, ALWAYS;
+ * UNTICKED with no row yet writes `false`, provided the listener was SHOWN the
+ * box; UNTICKED with a row already present writes NOTHING. The third arm is
+ * the Critical Block 29c closed (its fix round 1, F23) and the one worth
+ * pinning here: a listener who does not re-tick on a LATER promotion must not
+ * be read as withdrawing what they already gave.
  *
- * THE TWO ALREADY-SEEDED CONSENT-ONLY PROMOTIONS
- * (CONSENT_SWITCH_PROMOTION_A/B_NAME) carry this walk: one screen each,
- * nothing to fill in, so "Enter now" is reachable straight from the consent
- * screen twice over. Neither is entered anywhere else in this file — the two
- * tests that already choose them (the consent-carry-over case above and the
- * refusal-does-not-linger case) both stop before submitting.
+ * THE "SHOWN THE BOX" PROVISO IS 0268's FOURTH ARM and it is not what this
+ * journey tests — both promotions below ask for a field, so both draw the
+ * consent screen and this listener is shown the box twice. The fast path,
+ * where they would not be, is pinned by the no-rules-screen journey further
+ * down this file and by 42_widget_promotions' last case.
+ *
+ * THE TWO ALREADY-SEEDED SWITCH PROMOTIONS (CONSENT_SWITCH_PROMOTION_A/B_NAME)
+ * carry this walk: two screens each — consent, then the one field each asks
+ * for — so "Enter now" is two clicks away twice over. Neither is entered
+ * anywhere else in this file: the two tests that already choose them (the
+ * consent-carry-over case above and the refusal-does-not-linger case) both
+ * stop before submitting.
+ *
+ * THE FIELD IS BLOCK 30d, TASK 9's DOING AND THIS JOURNEY IS WHY THEY ASK FOR
+ * DIFFERENT ONES. Since 0268 a promotion asking nothing is entered from the
+ * list with no consent screen at all, so both promotions had to start asking
+ * for something or there would be no marketing checkbox left to tick. A asks
+ * for `city` and B for `address` because this is the one journey that enters
+ * BOTH with the same listener — with one shared field, filling it on A would
+ * have left B asking nothing of this listener, and B would have become the
+ * fast path halfway through the test.
  */
 test('the marketing checkbox writes true when ticked, and a later unticked entry leaves that true alone', async ({
   page,
@@ -1376,6 +1509,13 @@ test('the marketing checkbox writes true when ticked, and a later unticked entry
 
   await widget.getByTestId('widget-promotion-consent').check();
   await widget.getByTestId('widget-promotion-marketing-consent').check();
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // The one field promotion A asks for. Filled rather than skipped: an empty
+  // one is refused with `missing_answers` and no consent row is written at
+  // all, which would make every assertion below pass or fail for a reason
+  // that has nothing to do with the marketing box.
+  await widget.getByTestId('widget-promotion-field-city').fill(LISTENER_CITY);
   await widget.getByTestId('widget-promotion-send').click();
   await expect(widget.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });
 
@@ -1394,7 +1534,7 @@ test('the marketing checkbox writes true when ticked, and a later unticked entry
   // the question forever after; the widget suppresses the WRITE, not the
   // question. That gap is on the screen, not in this test, and the owner has
   // it as a product decision.
-  await widget.getByRole('button', { name: 'Back', exact: true }).click();
+  await widget.getByRole('button', { name: 'Voltar', exact: true }).click();
   await expect(widget.getByTestId('widget-menu')).toBeVisible({ timeout: 30_000 });
   await widget.getByTestId('widget-enter-promotion').click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
@@ -1408,6 +1548,12 @@ test('the marketing checkbox writes true when ticked, and a later unticked entry
   await widget.getByTestId('widget-promotion-consent').check();
   // The marketing box is left unticked here, deliberately — the mistake a
   // repeat participant makes without meaning anything by it.
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // Promotion B's own field, which is `address` and not `city`: this listener
+  // filled `city` on promotion A a moment ago, so a second promotion asking
+  // for it would ask them nothing at all.
+  await widget.getByTestId('widget-promotion-field-address').fill('Rua do Teste, 100');
   await widget.getByTestId('widget-promotion-send').click();
   await expect(widget.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });
 
@@ -1417,6 +1563,164 @@ test('the marketing checkbox writes true when ticked, and a later unticked entry
   const afterSecond = await marketingConsentRows();
   expect(afterSecond, 'the second, unticked entry wrote no second row').toHaveLength(1);
   expect(afterSecond[0]?.granted, 'the earlier true survives an unticked repeat').toBe(true);
+});
+
+/**
+ * Block 30d, Task 9 (D8, D10). A PROMOTION THAT ASKS NOTHING TAKES THE ENTRY ON
+ * THE TAP, and the rules screen the walk shows first does not appear on this
+ * path at all — the owner's ruling of 2026-08-21.
+ *
+ * THE SCREEN ASSERTION IS THAT `done` ARRIVES WITH NOTHING TICKED. This test
+ * never touches `widget-promotion-consent`, so against the panel as it was
+ * before Task 9 it does not merely fail an extra expectation — it hangs on the
+ * consent screen and times out waiting for a confirmation that needs a
+ * checkbox and a button first. There is no version of this journey that passes
+ * both ways.
+ *
+ * AND THEN THE ROW, WHICH IS THE HALF A SCREEN CANNOT SHOW. `origin` is what
+ * separates a consent produced by the act of entering from one produced by a
+ * click, for ever, and `promotion_id` is the column 0032 declared for exactly
+ * this consent_type and that the door left null until 0268. A panel that
+ * merely LOOKED right — because it drew no screen for a reason of its own —
+ * would still write `web-widget` here.
+ *
+ * A NINTH PHONE AND A PROMOTION OF ITS OWN. The listener has to be one nobody
+ * else in this file has entered (the promotion allows a single entry) and the
+ * promotion has to be the one that declares no field, because the fast path is
+ * a fact about the PAIR: every other promotion here asks this newcomer for
+ * something.
+ */
+test('a promotion that asks nothing is entered from the list, with no rules screen', async ({
+  page,
+}) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: FAST_ENTRY_VISITOR_LOCAL_PHONE,
+    phone: FAST_ENTRY_VISITOR_PHONE,
+    name: FAST_ENTRY_VISITOR_NAME,
+  });
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: FAST_ENTRY_PROMOTION_NAME, exact: true })
+    .click();
+
+  // NO TICK, NO "PARTICIPAR", NO SECOND SCREEN — the tap was the whole errand.
+  await expect(widget.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });
+  await expect(widget.getByTestId('widget-promotion-consent')).toHaveCount(0);
+
+  // THE RULES ARE STILL READABLE, on the confirmation. This is the whole of
+  // what keeps "no rules screen" from meaning "rules nobody can read": the
+  // listener agreed to a text, and the text is on the screen they end on.
+  await expect(widget.getByTestId('widget-promotion-rules')).toContainText(PROMOTION_RULES);
+
+  // THE DATABASE, NOT THE SCREEN.
+  const { data: listenerRows, error: listenerError } = await admin
+    .from('members')
+    .select('id')
+    .eq('phone', FAST_ENTRY_VISITOR_PHONE)
+    .limit(1);
+  if (listenerError) throw new Error(`could not read the listener back: ${listenerError.message}`);
+  const memberId = listenerRows?.[0]?.id as string;
+  expect(memberId, 'identifying created a member row').toBeTruthy();
+
+  const { data: promotionRows } = await admin
+    .from('promotions')
+    .select('id')
+    .eq('company_id', journeyCompanyId)
+    .eq('name', FAST_ENTRY_PROMOTION_NAME)
+    .limit(1);
+  const fastPromotionId = promotionRows?.[0]?.id as string;
+  expect(fastPromotionId, 'the no-walk promotion is where the fixture put it').toBeTruthy();
+
+  const { data: entries } = await admin
+    .from('participations')
+    .select('status, source, promotion_id')
+    .eq('member_id', memberId);
+  expect(entries, 'the tap wrote exactly one entry').toHaveLength(1);
+  expect(entries?.[0]?.status).toBe('VALID');
+  expect(entries?.[0]?.source).toBe('WEB');
+  expect(entries?.[0]?.promotion_id).toBe(fastPromotionId);
+
+  const { data: consents } = await admin
+    .from('member_consents')
+    .select('granted, origin, promotion_id')
+    .eq('member_id', memberId)
+    .eq('consent_type', 'rules');
+
+  expect(consents, 'entering left one rules consent row').toHaveLength(1);
+  expect(consents?.[0]?.granted).toBe(true);
+  // 'web-widget-entry', NOT 'web-widget'. The row says which act produced it,
+  // which is the whole answer to the objection the owner ruled on: nobody
+  // clicked, and the row does not claim anybody did.
+  expect(consents?.[0]?.origin, 'the consent says the entry itself was the agreement').toBe(
+    'web-widget-entry',
+  );
+  expect(consents?.[0]?.promotion_id, 'and it names the promotion whose rules those were').toBe(
+    fastPromotionId,
+  );
+
+  // Block 30d, fix round 1. AND NOTHING AT ALL ABOUT MARKETING. This listener
+  // was never shown the checkbox, so a `whatsapp_marketing` row of either
+  // value would be an answer they did not give — and a `false` one is read as
+  // a refusal by 0229's eligibility and by Block 29d's campaign audiences.
+  // Asserted through the browser rather than only in pgTAP because the
+  // unticked default is posted by THIS panel: the door's gate and the screen
+  // that has no box have to meet somewhere, and this is the only place they do.
+  const { data: marketing } = await admin
+    .from('member_consents')
+    .select('granted, origin')
+    .eq('member_id', memberId)
+    .eq('consent_type', 'whatsapp_marketing');
+
+  expect(marketing, 'a listener nobody asked is on file as neither yes nor no').toHaveLength(0);
+});
+
+/**
+ * Block 30d, Task 6, D7. THE COOKIE IS THE DEFECT, so this test plants one.
+ * Checked in a clean browser this passes with and without the change --
+ * there is nothing for the Station's language to win against, since
+ * playwright.config.ts already pins `en-US` and an unset `listener_locale`
+ * resolves the same way -- which is the shape of test this project has
+ * shipped before while believing it proved something.
+ *
+ * AND IT RUNS IN THE IFRAME, which is the presentation that matters: the
+ * obvious carrier for the language, `widget_station_identity`, is fetched
+ * only where `page.tsx` guards its `stationIdentity` call with
+ * `presentation === 'app'`, so a test driving the
+ * standalone page would pass against a build where the embedded widget --
+ * the whole point of the product -- is still wrong. Reached the same way
+ * every other journey in this file reaches the menu, through
+ * `identifyInFrame`: the button this test asserts on does not exist before a
+ * session does, and a test that set `pw_session` itself would prove nothing
+ * about the widget's own resolution.
+ */
+test('the widget renders in the Station language even when the browser carries another', async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([{ name: 'locale', value: 'en', url: appOrigin }]);
+
+  const widget = await identifyInFrame(page, {
+    localPhone: LOCALE_VISITOR_LOCAL_PHONE,
+    phone: LOCALE_VISITOR_PHONE,
+    name: LOCALE_VISITOR_NAME,
+  });
+
+  // 'Pedir uma música' -- messages/pt.json's `widget.requestASong` -- not
+  // 'Request a song', which is what an English-resolving widget would show
+  // this cookie in hand.
+  await expect(widget.getByRole('button', { name: 'Pedir uma música' })).toBeVisible();
+
+  // AND IT SAYS SO IN THE MARKUP, not only in the words. `<html lang>` inside
+  // this iframe still names the cookie's locale -- the root layout sets it and
+  // nothing inside the route can reach it (docs/WIDGET.md §14) -- so the
+  // declaration a screen reader actually resolves is the one the widget's own
+  // frame carries. This is the assertion that fails if that attribute is
+  // dropped, which no visible text would notice.
+  await expect(widget.locator('div[lang]')).toHaveAttribute('lang', 'pt');
 });
 
 /**

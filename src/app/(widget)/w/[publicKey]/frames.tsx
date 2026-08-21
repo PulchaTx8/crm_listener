@@ -12,6 +12,23 @@ import type { StationIdentity } from '@/services/widget-installations';
  * SERVER COMPONENTS, with no `'use client'`: neither frame has state, and the
  * `<style href=… precedence=…>` mechanism below is React 19's own hoisting,
  * which works from the server.
+ *
+ * BOTH TAKE `lang`, AND BOTH ARE WHERE THE WIDGET'S LANGUAGE IS DECLARED.
+ * Block 30d lets a Station choose what its listeners read
+ * (`companies.listener_locale`), and the page wraps its own subtree in a second
+ * `NextIntlClientProvider` for that locale — but `<html lang>` is set once by
+ * the root layout from the request's own resolution, which is the console
+ * operator's cookie and not the Station's choice. `lang` is INHERITED FROM THE
+ * NEAREST ANCESTOR THAT CARRIES IT, so declaring it on the element that wraps
+ * the widget's content is what actually governs the harm: the voice a screen
+ * reader picks, and whether a browser offers to translate a page that is
+ * already in the reader's language. The `<html>` attribute itself still names
+ * the cookie's locale — nothing under here can reach it — and that residue is
+ * inert, because no widget text is an ancestor of these elements.
+ *
+ * REQUIRED RATHER THAN OPTIONAL: this page renders a frame from three places,
+ * and a prop that may be omitted is one a fourth would forget on the day
+ * somebody adds it.
  */
 
 /**
@@ -34,11 +51,20 @@ import type { StationIdentity } from '@/services/widget-installations';
  * else's sidebar, not a page: wider and it stops fitting where a Station will
  * actually put it.
  */
-export function EmbeddedFrame({ children }: { children: React.ReactNode }) {
+export function EmbeddedFrame({
+  lang,
+  children,
+}: {
+  /** The language the widget's own text is in — see this file's header. */
+  lang: string;
+  children: React.ReactNode;
+}) {
   return (
     <>
       <style href="widget-surface" precedence="high">{`html,body{background:transparent}`}</style>
-      <div className="mx-auto w-full max-w-md p-4">{children}</div>
+      <div lang={lang} className="mx-auto w-full max-w-md p-4">
+        {children}
+      </div>
     </>
   );
 }
@@ -65,13 +91,16 @@ export function EmbeddedFrame({ children }: { children: React.ReactNode }) {
  */
 export function AppFrame({
   identity,
+  lang,
   children,
 }: {
   identity: StationIdentity | null;
+  /** The language the widget's own text is in — see this file's header. */
+  lang: string;
   children: React.ReactNode;
 }) {
   return (
-    <div data-widget-presentation="app" className="min-h-dvh bg-background">
+    <div lang={lang} data-widget-presentation="app" className="min-h-dvh bg-background">
       <style href="widget-app-surface" precedence="high">{`
         html,body{background:hsl(var(--background))}
         [data-widget-presentation='app'] button,

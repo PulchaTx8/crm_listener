@@ -523,7 +523,12 @@ async function advanceLive(
  * `runConversationTurn`). Nothing here is wrong; nothing here executes.
  * `whatsapp_marketing` consent is actually collected today through the
  * widget's checkbox (Task 9 of this block's plan, `enter-promotion.tsx`),
- * not through this conversation. This code stays -- deleting it would also
+ * not through this conversation -- AND SINCE BLOCK 30d THAT CHECKBOX HAS A
+ * HOLE IN IT: a promotion with nothing left to ask of a listener is entered
+ * straight from the list with no consent screen, so no box is shown and 0268
+ * deliberately records nothing (its D10a). A Station whose promotions ask
+ * nothing therefore collects no marketing consent at all, which is the
+ * strongest argument yet for whichever door revives this step. This code stays -- deleting it would also
  * revert `store.ts`'s step schema for no gain -- ready for whichever door
  * opens a conversation again.
  *

@@ -360,9 +360,9 @@ select is(
   public.whatsapp_conversation_steps(
     '00000000-0000-0000-0000-000000000925', '00000000-0000-0000-0000-000000000910'),
   ('[{"kind": "consent"}, {"kind": "field", "field": "city"},'
-   || ' {"kind": "question", "questionId": "00000000-0000-0000-0000-000000000933", "questionKind": "QUIZ"},'
-   || ' {"kind": "question", "questionId": "00000000-0000-0000-0000-000000000931", "questionKind": "ESSAY"},'
-   || ' {"kind": "question", "questionId": "00000000-0000-0000-0000-000000000932", "questionKind": "MULTIPLE_CHOICE"}]')::jsonb,
+   || ' {"kind": "question", "questionId": "00000000-0000-0000-0000-000000000933", "questionKind": "QUIZ", "prompt": "First question"},'
+   || ' {"kind": "question", "questionId": "00000000-0000-0000-0000-000000000931", "questionKind": "ESSAY", "prompt": "Second question"},'
+   || ' {"kind": "question", "questionId": "00000000-0000-0000-0000-000000000932", "questionKind": "MULTIPLE_CHOICE", "prompt": "Third question"}]')::jsonb,
   'questions appear in position order after the fields, regardless of insertion or id order');
 
 -- J. Fields come out in the ENUM's own order, not the order an operator

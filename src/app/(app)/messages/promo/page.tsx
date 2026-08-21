@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger';
 import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { getServiceHashtags, listSystemMessages } from '@/services/templates';
+import { getListenerLocale, getServiceHashtags, listSystemMessages } from '@/services/templates';
 import type { ServiceHashtags, SystemMessageRow } from '@/services/templates';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
@@ -14,6 +14,7 @@ import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-
 import { canManageTemplates } from '../permissions';
 import { describeTemplateReadError } from '../errors';
 import { HashtagFields } from './hashtag-fields';
+import { ListenerLanguage } from './listener-language';
 import { SystemMessageList } from './system-message-list';
 
 // Renders from the caller's session cookies and a live per-Station permission
@@ -70,11 +71,38 @@ export default async function SystemMessagesPage({
   let rows: SystemMessageRow[];
   let manage: boolean;
   let hashtags: ServiceHashtags;
+  let listenerLocale: string | null;
   try {
-    [rows, manage, hashtags] = await Promise.all([
+    [rows, manage, hashtags, listenerLocale] = await Promise.all([
       listSystemMessages(selected.id),
       canManageTemplates(supabase, selected.id),
       getServiceHashtags(selected.id),
+      // CAUGHT ON ITS OWN, so one absent column cannot take the whole screen
+      // down. `getListenerLocale` selects `companies.listener_locale`, which
+      // 0265 adds — and this project has shipped application code ahead of its
+      // migrations three times already (Blocks 13a, 17b and 17c, counted by
+      // docs/WIDGET.md §13). On a deployment where 0265 has not landed,
+      // PostgREST answers `42703` for that column, and the shared `catch`
+      // below would replace the whole system-message list and both service
+      // hashtags with an error page — none of which depend on it. (Not "the
+      // ten system texts": `SYSTEM_MESSAGE_KEYS` is `Object.keys(
+      // SYSTEM_MESSAGE_DEFAULTS)`, which has seventeen entries. "Ten" is a
+      // stale count this repository repeats in six other comments
+      // (`grep -rn "ten system texts\|ten edit forms\|ten texts a Station\|
+      // ten defaults" src/`); a number nothing recomputes is a comment waiting
+      // to lie, so this one names the list instead of counting it.) `null` is a value
+      // this screen already renders correctly — the card's own
+      // "follow the visitor's browser" — so the new card degrades to its
+      // default and the rest of the screen is untouched. The same tolerance
+      // `readSteps` gives an absent `prompt` and `installationContext` gives a
+      // locale this deployment no longer serves.
+      getListenerLocale(selected.id).catch((cause) => {
+        logger.warn(
+          { err: cause, companyId: selected.id },
+          'could not read the listener locale; falling back to the ordinary resolution',
+        );
+        return null;
+      }),
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the system messages');
@@ -133,8 +161,10 @@ export default async function SystemMessagesPage({
 
       <HashtagFields companyId={selected.id} hashtags={hashtags} manage={manage} />
 
+      <ListenerLanguage companyId={selected.id} locale={listenerLocale} manage={manage} />
+
       {/*
-        Said on the screen rather than only in the runbook: these ten bodies are
+        Said on the screen rather than only in the runbook: these bodies are
         the one place in this product where Portuguese is correct, and an
         operator who does not know that will "fix" them into English and take
         the bot's voice away from every listener at this Station.

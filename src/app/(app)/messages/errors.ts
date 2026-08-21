@@ -123,6 +123,33 @@ export function describeServiceHashtagsError(
 }
 
 /**
+ * Block 30d, item 2 (D6). The listener-language card's describer, the same
+ * shape describeServiceHashtagsError carries for its own — and NO
+ * `NotFoundError` BRANCH: `set_listener_locale` (0265) raises no `P0002`,
+ * because a Station always exists — unlike `set_service_hashtags`, which
+ * fails that way when the Station has no widget installation at all. If
+ * `mapTemplateError` (services/templates.ts) ever produced one here, falling
+ * through to `couldNotSave` is correct: the door promises it cannot happen,
+ * so a `NotFoundError` reaching this function would mean the promise broke,
+ * not that this screen has a sentence ready for it.
+ *
+ * `ValidationError` passes through verbatim: the door's own 22023 sentence
+ * ("that language has no catalogue") is more specific than anything generic
+ * this function could say, the same reasoning describeServiceHashtagsError
+ * gives for its own.
+ */
+export function describeListenerLocaleError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
+  if (cause instanceof ValidationError) return cause.message;
+  if (cause instanceof UnauthorizedError) {
+    return t('youDoNotHavePermissionToHere', { action: t('actionChangeTheListenerLanguage') });
+  }
+  return t('couldNotSave');
+}
+
+/**
  * Block 29d-1, Task 6. `listSendLists` reads `send_lists` directly under RLS
  * (0238's own select policy), so a caller without `messaging.view` anywhere
  * reads zero rows rather than an error -- the `UnauthorizedError` branch below

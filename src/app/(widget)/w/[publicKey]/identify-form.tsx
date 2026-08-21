@@ -72,7 +72,7 @@ export function IdentifyForm({
    * WhatsApp reply's link opens (`enter/route.ts`) redirects here with that
    * parameter for every reason a code can fail to become a session, ordinary
    * (used, timed out) and otherwise (the Station itself went dark; see
-   * `page.tsx`'s own comment on `installationExists`).
+   * `page.tsx`'s own comment on `installationContext`).
    */
   linkExpired?: boolean;
 }) {

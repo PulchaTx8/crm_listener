@@ -51,7 +51,7 @@ import { provisionCustomer } from './provision';
  *      link` did not check until this block's fix round 1 (C1). `page.tsx`
  *      404s a dark Station on every other path; only `?link=expired` makes
  *      it render the identify form instead (`page.tsx`'s own comment on
- *      `installationExists`).
+ *      `installationContext`).
  */
 
 const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
@@ -443,13 +443,33 @@ test('a hashtag becomes a link, the link identifies, and the widget answers the 
     // else: the member id on the request matches the one the hashtag
     // resolved to, read back independently by phone rather than trusted
     // from the widget's own screen.
+    //
+    // READ UNDER BOTH SPELLINGS, and that is this assertion's second job since
+    // Block 30d's D4. The bot registered a listener under
+    // whatsapp_local_phone's answer -- the LOCAL form, `11...` -- until 0267
+    // wired it to international_phone like every other door that writes a
+    // telephone number, so `members.phone_normalized` holds the DELIVERED
+    // digits now. Querying both is what keeps "exactly one" meaning what it
+    // says: the split D4 exists to end is one person arriving as two rows, one
+    // per spelling, and a lookup naming a single spelling cannot see it.
     const { data: listenerRows, error: listenerError } = await admin
       .from('members')
-      .select('id')
+      .select('id, phone_normalized')
       .eq('organization_id', organizationId)
-      .eq('phone_normalized', JOURNEY_LOCAL_PHONE);
+      .in('phone_normalized', [JOURNEY_DELIVERED_PHONE, JOURNEY_LOCAL_PHONE]);
     if (listenerError) throw new Error(`could not read the listener back: ${listenerError.message}`);
-    expect(listenerRows, 'exactly one member for the phone that sent the hashtag').toHaveLength(1);
+    expect(
+      listenerRows,
+      'exactly one member for the phone that sent the hashtag, counting both spellings',
+    ).toHaveLength(1);
+
+    // AND IT IS STORED CANONICALLY. Asserted on its own line rather than left
+    // implicit in the query: reverting 0267's member resolution to
+    // whatsapp_local_phone leaves exactly one row as well, under `11...`, so
+    // the count above would still pass and this is the line that would not.
+    // It is the only e2e assertion anywhere that reads phone_normalized, which
+    // makes it the whole of D4's browser-level proof.
+    expect(listenerRows![0]!.phone_normalized).toBe(JOURNEY_DELIVERED_PHONE);
     expect(request0!.member_id).toBe(listenerRows![0]!.id);
   });
 
@@ -459,6 +479,80 @@ test('a hashtag becomes a link, the link identifies, and the widget answers the 
     // THE RULES TEXT IS THIS PROMOTION'S OWN — proof that the id in the
     // query string, not merely "a" promotion, is what opened.
     await expect(page.getByTestId('widget-promotion-rules')).toContainText(PROMOTION_RULES);
+  });
+
+  /**
+   * Block 30d, fix round 3. THIS PROMOTION ASKS NOTHING -- no requested field,
+   * no question -- so `whatsapp_conversation_steps` answers `consent` alone and
+   * `needsNoWalk` is true for every listener alive. That made it the exact
+   * shape Task 9 broke: the panel stopped drawing a walk for such a promotion,
+   * and the only entry point left was the LIST ROW's own form, which arriving
+   * by link performs no tap on. The step above landed on the promotion list
+   * instead of on the promotion the link named -- and it is the rules
+   * assertion in that step that caught it, because a list has no rules text
+   * on it.
+   *
+   * ONE ACTION, AND EXACTLY ONE. Not an entry on load: this door writes a
+   * participation and a consent row, and a screen that entered on render would
+   * enter again on a refresh, on a link opened by mistake, and on whatever
+   * fetches a URL to preview it. The list costs one tap and so does this.
+   */
+  await test.step('case 2b: one action on that screen enters, and the confirmation follows', async () => {
+    // NO CHECKBOX IS TICKED HERE, deliberately -- there is none to tick. The
+    // rules are on screen and pressing the button agrees to them, which is the
+    // same meaning the list's tap carries and what 0268 records as
+    // `web-widget-entry`.
+    await page.getByTestId('widget-promotion-send').click();
+    await expect(page.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });
+
+    // AND THE RULES ARE STILL READABLE afterwards, which is the whole of what
+    // keeps "no rules screen" from meaning "rules nobody can read".
+    await expect(page.getByTestId('widget-promotion-rules')).toContainText(PROMOTION_RULES);
+
+    // THE DATABASE, NOT THE SCREEN.
+    const { data: listenerRows } = await admin
+      .from('members')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .in('phone_normalized', [JOURNEY_DELIVERED_PHONE, JOURNEY_LOCAL_PHONE]);
+    const memberId = listenerRows?.[0]?.id as string;
+    expect(memberId, 'the hashtag resolved to a listener').toBeTruthy();
+
+    const { data: entries } = await admin
+      .from('participations')
+      .select('status, source, promotion_id')
+      .eq('member_id', memberId)
+      .eq('promotion_id', promotionId);
+    expect(entries, 'one entry, written by that one press').toHaveLength(1);
+    expect(entries?.[0]?.status).toBe('VALID');
+    expect(entries?.[0]?.source).toBe('WEB');
+
+    // `web-widget-entry`, NOT `web-widget`: no rules SCREEN was walked, and
+    // 0268's origin is what tells the two apart for ever.
+    const { data: consents } = await admin
+      .from('member_consents')
+      .select('granted, origin, promotion_id')
+      .eq('member_id', memberId)
+      .eq('consent_type', 'rules');
+    expect(consents, 'entering left one rules consent row').toHaveLength(1);
+    expect(consents?.[0]?.granted).toBe(true);
+    expect(consents?.[0]?.origin).toBe('web-widget-entry');
+    expect(consents?.[0]?.promotion_id).toBe(promotionId);
+  });
+
+  /**
+   * THE NEIGHBOURING OUTCOME, which the screen above must not steal.
+   * `decideAutoOpen` tests already-entered BEFORE nothing-left-to-ask, so the
+   * same link followed a second time still answers `show-list` -- the ordinary
+   * list render, where this promotion appears disabled with its own
+   * "already entered" label. Reversed, the listener would be handed a button
+   * whose only possible outcome is an `already_entered` refusal.
+   */
+  await test.step('case 2c: the same link again lands on the list, not on a second entry screen', async () => {
+    await page.goto(`http://localhost:3000/w/${publicKey}?open=promotion&id=${promotionId}`);
+    await expect(page.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('widget-promotion-send')).toHaveCount(0);
+    await expect(page.getByTestId('widget-promotion-list')).toContainText(PROMOTION_NAME);
   });
 
   await test.step('case 3: a malformed id lands on the menu, never an error', async () => {

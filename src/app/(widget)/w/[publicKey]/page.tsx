@@ -1,5 +1,7 @@
 import { cookies, headers } from 'next/headers';
 import { notFound } from 'next/navigation';
+import { NextIntlClientProvider } from 'next-intl';
+import { getLocale } from 'next-intl/server';
 import { env } from '@/lib/env';
 import {
   choosePresentation,
@@ -8,7 +10,7 @@ import {
 } from '@/lib/widget/presentation';
 import { parseOpenTarget } from '@/lib/widget/open-target';
 import { WIDGET_SESSION_COOKIE, readSessionFor } from '@/lib/widget/session';
-import { installationExists, stationIdentity } from '@/services/widget-installations';
+import { installationContext, stationIdentity } from '@/services/widget-installations';
 import { Farewell } from './farewell';
 import { AppFrame, EmbeddedFrame } from './frames';
 import { IdentifyForm } from './identify-form';
@@ -75,17 +77,19 @@ export default async function WidgetPage({
   // Rendering a form instead would invite somebody to type a telephone number
   // into a widget whose every submission is refused.
   //
-  // `installationExists` THROWS rather than returning false when the database
-  // cannot be reached, and that throw is deliberately not caught: a 500 during
-  // an outage is the truth, and turning it into this 404 would tell a Station
-  // whose configuration is perfectly correct that their key is wrong.
-  if (!(await installationExists(publicKey))) {
+  // `installationContext` THROWS rather than answering `found: false` when the
+  // database cannot be reached, and that throw is deliberately not caught: a
+  // 500 during an outage is the truth, and turning it into this 404 would tell
+  // a Station whose configuration is perfectly correct that their key is
+  // wrong.
+  const context = await installationContext(publicKey);
+  if (!context.found) {
     // TASK 7's REPAIR, found by Task 6's own review. `consume_widget_link`
     // answers `unavailable` — folded into the same `?link=expired` redirect as
     // every other failure, by design (`enter/route.ts`'s own comment) — when
     // the Station was switched off, suspended or archived BETWEEN the link
-    // being minted and this tap. `installationExists` returns false for
-    // exactly that Station, so without this branch a listener who followed a
+    // being minted and this tap. `installationContext` answers `found: false`
+    // for exactly that Station, so without this branch a listener who followed a
     // perfectly correct redirect landed on the one answer the spec forbids: a
     // 404, which reads as broken rather than as "try again".
     //
@@ -106,14 +110,69 @@ export default async function WidgetPage({
     // resolves to nothing to be identified.
     if (linkExpired) {
       const expired = <IdentifyForm publicKey={publicKey} linkExpired />;
+      // THE REQUEST'S OWN LOCALE HERE, not a Station's — and NOT because there
+      // is no Station. The paragraph above says exactly the opposite: this
+      // branch also catches a real Station that went dark between the link
+      // being minted and this tap, and such a Station may well have chosen a
+      // listener language. The reason is that the door WITHHOLDS it.
+      // `widget_frame_context` answers every refusal as
+      // `{found: false, origins: [], listenerLocale: null}` — measured, not
+      // assumed: the same key that answered `"listenerLocale": "pt"` answers
+      // null once its Organization is blocked. So there is no Station locale to
+      // be had here even where a Station exists, and this screen renders under
+      // the ROOT provider — the same catalogue `<html lang>` already names.
+      // Stated rather than left off, because an omitted `lang` and a `lang`
+      // that happens to equal the document's read identically on screen, and
+      // only one of them says which it meant.
+      const requestLocale = await getLocale();
       return (await resolvePresentation()) === 'embedded' ? (
-        <EmbeddedFrame>{expired}</EmbeddedFrame>
+        <EmbeddedFrame lang={requestLocale}>{expired}</EmbeddedFrame>
       ) : (
-        <AppFrame identity={null}>{expired}</AppFrame>
+        <AppFrame identity={null} lang={requestLocale}>
+          {expired}
+        </AppFrame>
       );
     }
     notFound();
   }
+
+  // Block 30d, D7. The root provider resolves from the `locale` cookie, and
+  // src/middleware.ts:421 writes that cookie from the signed-in profile with
+  // `path: '/'` -- a path that covers /w. An operator who set the console to
+  // English then saw an English widget on the Station's own site. The Station's
+  // choice has to win HERE, over a provider that has already resolved, which is
+  // why this is a second provider rather than a change to src/i18n/request.ts:
+  // that file serves every route and knows nothing about installations.
+  //
+  // COMPUTED ONCE, ABOVE BOTH RETURNS THIS FUNCTION CAN STILL REACH for a
+  // found installation -- the farewell below and the menu/identify form
+  // further down -- so a listener who signs out sees the same language they
+  // were just reading, rather than the wrap applying to one screen and not
+  // the other.
+  const widgetLocale = context.listenerLocale ?? (await getLocale());
+
+  // THE `widget` NAMESPACE ALONE, not the whole catalogue, and on this page
+  // that is not a micro-optimisation. The root layout's provider
+  // (src/app/layout.tsx) already serialises the request-locale catalogue into
+  // every response; a second complete `messages/<locale>.json` here would send
+  // the console's strings twice in a payload a radio station serves from its
+  // own website, in an iframe, to a listener on a telephone. MEASURED, not
+  // estimated: `JSON.stringify` of `messages/pt.json` is 139 890 bytes and of
+  // `{ widget: … }` alone is 3 779 -- 2.7% of it. Every other namespace in
+  // that file belongs to screens no widget renders.
+  //
+  // WHAT MAKES THE SLICE SAFE, checked rather than assumed: every component
+  // under this provider -- IdentifyForm, WidgetMenu and everything it opens
+  // (EnterPromotionPanel, RequestSongPanel), Farewell, and both frames --
+  // reads `useTranslations('widget')` and nothing else, and the only shared
+  // components any of them import are Button and Input, neither of which is
+  // translated. `grep -rn "useTranslations\|getTranslations\|useFormatter"
+  // "src/app/(widget)/"` names those files and no other namespace. A
+  // component added under here that reaches for another namespace gets
+  // next-intl's missing-message error, not a silent blank -- so the failure
+  // announces itself and this line is where it is answered.
+  const messages = (await import(`../../../../../messages/${widgetLocale}.json`)).default;
+  const widgetMessages = { widget: messages.widget };
 
   // D1: the frame around it, and the frame decides. Resolved via
   // `resolvePresentation` (this file's own header comment) rather than a
@@ -140,10 +199,18 @@ export default async function WidgetPage({
   // nothing, but not what a listener who just pressed "Sair" should see.
   if (left === '1') {
     const farewell = <Farewell exitHref={identity?.whatsappHref ?? null} publicKey={publicKey} />;
-    return presentation === 'embedded' ? (
-      <EmbeddedFrame>{farewell}</EmbeddedFrame>
-    ) : (
-      <AppFrame identity={identity}>{farewell}</AppFrame>
+    const framed =
+      presentation === 'embedded' ? (
+        <EmbeddedFrame lang={widgetLocale}>{farewell}</EmbeddedFrame>
+      ) : (
+        <AppFrame identity={identity} lang={widgetLocale}>
+          {farewell}
+        </AppFrame>
+      );
+    return (
+      <NextIntlClientProvider locale={widgetLocale} messages={widgetMessages}>
+        {framed}
+      </NextIntlClientProvider>
     );
   }
 
@@ -193,9 +260,18 @@ export default async function WidgetPage({
       <IdentifyForm publicKey={publicKey} linkExpired={linkExpired} />
     );
 
-  return presentation === 'embedded' ? (
-    <EmbeddedFrame>{body}</EmbeddedFrame>
-  ) : (
-    <AppFrame identity={identity}>{body}</AppFrame>
+  const framed =
+    presentation === 'embedded' ? (
+      <EmbeddedFrame lang={widgetLocale}>{body}</EmbeddedFrame>
+    ) : (
+      <AppFrame identity={identity} lang={widgetLocale}>
+        {body}
+      </AppFrame>
+    );
+
+  return (
+    <NextIntlClientProvider locale={widgetLocale} messages={widgetMessages}>
+      {framed}
+    </NextIntlClientProvider>
   );
 }

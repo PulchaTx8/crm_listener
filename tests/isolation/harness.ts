@@ -590,6 +590,15 @@ export async function seedApiCredential(
  * The NEWEST row for that pair, matching the door's own step 2: a visitor who
  * asks for a second code has abandoned the first, and only the latest is the one
  * an attempt counts against.
+ *
+ * MATCHED ON THE DIGITS, not on the string. Since 0263 widget_request_code
+ * stores `international_phone(p_phone, the Station's country)` rather than the
+ * keystrokes, so the spelling on the row is the door's business and not the
+ * caller's: a Station with a country stores `+5511…` and one without stores the
+ * bare digits, and a caller passing either would have missed the other. Going
+ * through normalize_phone is the same notion of "the same number" that
+ * members.phone_normalized (0031) uses to decide who is who, so this helper
+ * answers about the row the door actually wrote whichever way it wrote it.
  */
 export async function readVerificationAttempts(
   publicKey: string,
@@ -601,7 +610,7 @@ export async function readVerificationAttempts(
        from public.widget_verifications v
        join public.widget_installations w on w.id = v.installation_id
       where w.public_key = $1
-        and v.phone = $2
+        and public.normalize_phone(v.phone) = public.normalize_phone($2)
       order by v.created_at desc
       limit 1`,
     [publicKey, phone],

@@ -280,8 +280,16 @@ insert into public.integrations (id, organization_id, company_id, provider, phon
    '00000000-0000-0000-0000-0000000029c5', 'WHATSAPP', 'phone-number-id-b', true);
 
 -- 29a5's phone is stored in the LOCAL form, exactly as apply_member_creation
--- (0061) stores it for a listener this bot registered -- the ordinary case,
--- and the first of the two forms the door tries.
+-- (0061) stores it for a listener this bot registered -- and, since 0263
+-- inverted the door's search order, the form it tries SECOND.
+--
+-- These Stations carry no country (see the companies inserts at the top of this
+-- file), so international_phone answers the delivered digits unchanged and the
+-- door's first search is for 5511999990001 -- which this listener is not stored
+-- under. whatsapp_local_phone strips the 55, and the second search finds them.
+-- Before 0263 this was the FIRST search and 29a6 below was the fallback; the
+-- two swapped places and both are still covered, which is the point of keeping
+-- the pair.
 insert into public.members (id, organization_id, full_name, phone) values
   ('00000000-0000-0000-0000-0000000029a5', '00000000-0000-0000-0000-0000000029c1',
    'Conhecida na estacao A', '11999990001');
@@ -366,13 +374,23 @@ select is(
   (select count(*)::int from public.member_consents where origin = 'stop_word'),
   1, 'and writes nothing for it');
 
--- THE FALLBACK FORM. 29a6's phone is stored FULL, country code and all --
--- the shape a listener registered through a different door keeps. The LOCAL
--- form the door tries first (whatsapp_local_phone strips the delivered
--- phone's country code) does not match it; only the delivered form does,
--- which is exactly the second attempt ingest_whatsapp_event (0179) already
--- falls back to, and the reason this door goes through apply_member_lookup
--- (0061) rather than one hand-written comparison.
+-- THE CANONICAL FORM, which since 0263 is the one tried FIRST. 29a6's phone is
+-- stored FULL, country code and all -- the shape a listener registered through
+-- a different door keeps, and the shape 0262 moved every WhatsApp-registered
+-- listener into. This Station has no country, so international_phone leaves the
+-- delivered digits alone and the first search is for exactly them: this
+-- listener is found on the first attempt, not on a fallback.
+--
+-- Before 0263 the local form was tried first and this listener was the fallback
+-- case. The order inverted because 0262 made the full form the likelier way a
+-- listener is stored; the local form is now the fallback, for a row that repair
+-- could not reach, and 29a5 above is what still covers it. The assertion's
+-- VALUE is the same either way, which is exactly why this comment had to be
+-- corrected rather than left to look right.
+--
+-- Either way the door goes through apply_member_lookup (0061) rather than one
+-- hand-written comparison -- the same shared core ingest_whatsapp_event (0179)
+-- resolves every listener through.
 insert into public.members (id, organization_id, full_name, phone) values
   ('00000000-0000-0000-0000-0000000029a6', '00000000-0000-0000-0000-0000000029c1',
    'Conhecida com o codigo do pais', '5511999990002');
@@ -384,7 +402,7 @@ select is(
   (select public.withdraw_marketing_by_phone(
      '00000000-0000-0000-0000-0000000029c6', '5511999990002')),
   '00000000-0000-0000-0000-0000000029c2'::uuid,
-  'the delivered form is tried when the local form does not match');
+  'a listener stored under the full form is found by the first search');
 
 select is(
   (select count(*)::int from public.member_consents

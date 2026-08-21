@@ -169,13 +169,50 @@ home page.
 **Suspension and blocking are read live, at the door, and there is nothing to
 switch back on afterwards.** `suspend_company` sets `companies.status` and
 blocking an Organization sets `organizations.suspended_at`; neither touches
-`widget_installations.enabled`, and `0164` joins both conditions into all
-three widget doors rather than having those functions disable the installation.
+`widget_installations.enabled`, and `0164` joins both conditions into the three
+doors it rewrites rather than having those functions disable the installation.
 So releasing a customer restores their widget with no console step — and,
 before `0164`, a Station suspended for non-payment went on framing, went on
 billing its owner for verification codes, and went on writing listeners into a
 blocked Organization until somebody remembered to disable the installation by
 hand.
+
+**One gap in that, and it is open at the time of writing (Block 30d).** The
+paragraph above is about the doors that FRAME the widget and IDENTIFY a
+visitor. The doors a visitor uses **once identified** gate on two different
+functions, and **neither checks the Organization** — both test
+`companies.status`, `companies.suspended_at` and `companies.deleted_at`, with no
+`organizations` join at all:
+
+| Context function | Doors it gates | What those doors write |
+| --- | --- | --- |
+| `widget_listener_context` | `widget_promotions`, `widget_shows`, `widget_enter_promotion` | a `member_consents` row, a `participations` row, an `audit_logs` row |
+| `widget_music_request_context` | `widget_music_request_wait`, `widget_record_music_request` | a `music_requests` row, plus whatever `apply_song_intake` creates — `songs`, `artists`, `albums` |
+
+**They are the only two**, and that is a mechanical answer rather than a
+reading: of the sixteen functions whose body mentions `widget_installations`,
+these two are the only ones that neither join `public.organizations` nor gate on
+`is_platform_admin` / `has_permission` / `is_owner` — and the permission path
+carries the condition already, inside `has_company_access_for` (`0156`).
+`is_platform_admin` deliberately does not, which is how a blocked Organization
+can be unblocked at all.
+
+A **suspended Station** is refused everywhere. A **blocked Organization** is
+refused by the page (so `/w/<key>` 404s, which is why this reads as closed) and
+not by the Server Actions behind it, so a listener holding a widget session
+cookie minted before the block can still enter a promotion and still ask for a
+song. Both probed against the live database in rolled-back transactions, not
+inferred: with the Organization blocked, `widget_enter_promotion` answered
+`ok:true` and wrote three rows, and `widget_record_music_request` answered
+`ok:true` and took `music_requests` from 1 to 2 while creating a song and an
+artist.
+
+It is one join **in each** — and a deliberate decision rather than an oversight
+to fix in passing. **Closing only `widget_listener_context` would leave half the
+exposure open**, which is exactly the mistake the earlier draft of this
+paragraph invited. The reading, both probes and the cost are in
+`.superpowers/sdd/2026-08-21-block-30d-widget/task-8-report.md` §47, alongside
+the two matching holes in the WhatsApp door.
 
 **An installation with no origins configured is a different case, and it
 does not 404.** `widget_frame_context` (`0161`, rewritten by `0164`) decides
@@ -404,16 +441,40 @@ options were deleted is refused `promotion_closed`, not blamed with
 `missing_answers` for a question it was never shown a way to answer. §13
 covers what deploying `0186` requires.
 
-### What the door writes, and the one divergence
+### What the door writes, and where it diverges from WhatsApp
 
 `widget_enter_promotion` does what `complete_conversation` (0071) does — the
 field values onto `members` through the shared `apply_member_field_values`, one
 confirmation per field answered, then `apply_participation(..., 'WEB', answers)`
 — **plus a `rules` consent row, which the WhatsApp flow does not write at all.**
 
-That divergence is deliberate: there is now a rules text that was displayed and
-agreed to. **The owner has ruled that WhatsApp will record the same consent when
-that door is next worked on.** Until then the two differ, in writing.
+That divergence is deliberate: there is a rules text, and entering is agreeing
+to it.
+
+**The 2026-08-11 wording of this section said "a rules text that was displayed
+and agreed to", and Block 30d made the first half of that untrue.** Since `0268`
+a promotion with nothing left to ask of this listener is entered straight from
+the list with no rules screen at all, so the row's `origin` is what records which
+act produced it: `web-widget` when the listener was shown the text and ticked,
+`web-widget-entry` when there was no screen and choosing the promotion WAS the
+agreement. The text is still reachable — the panel renders it on the
+confirmation. Since `0268` the row also carries `promotion_id`, which it had
+always left null.
+
+**And the prediction about WhatsApp has since been answered the other way.** This
+section used to say the owner had ruled WhatsApp would record the same consent
+when that door was next worked on. That door was worked on — `0267`, Block 30d —
+and it records none: sending a hashtag enters the listener and writes no
+`member_consents` row, which that migration states in its own comment. The two
+doors still differ, in writing, and the difference is now settled rather than
+pending.
+
+**A second consent row, and the one case it is NOT written.** Since Block 29c
+(`0234`) this door also writes a `whatsapp_marketing` row from the widget's
+marketing checkbox — true when ticked, false when unticked and the listener has
+no such row yet, nothing when one already exists. `0268` adds the fourth case:
+on the fast path no checkbox is shown, so nothing is written and the listener
+stays askable. Entering agrees to the *rules*; it says nothing about marketing.
 
 Declining is a real path: it writes `promotion_refusals` stamped `WEB` and
 nothing else.
@@ -591,6 +652,21 @@ repeat, or a spent ceiling, is still recorded and answered exactly as it
 always was (Block 4c/5a), because that is a fact about the message the
 Station received and has nothing to do with whether rules text exists yet.
 
+**Since Block 30d, this gate stands ahead of a second way to say yes, not
+just the link.** A matched promotion with nothing left to ask this listener —
+no field and no question the promotion or their own history still needs — is
+now entered on the spot, with a confirmation sent back instead of a link
+(item 14's WhatsApp half; the widget's own version of the same idea is in
+§9). That path needs no widget installation, only the WhatsApp integration
+already resolved, so `no_rules` had to move ahead of it too: it now gates
+**both** ways `ingest_whatsapp_event` can say yes, and `no_installation` —
+which exists only to guard minting a link — trails both. **One visible
+consequence:** a Station with **no widget installation and no rules text**
+now answers `no_rules` where it used to answer `no_installation`. Both are
+silent to the listener; the one naming the promotion's own missing text is
+the more useful diagnostic for an operator asking "why didn't it work?",
+because it is the half that Station can fix without a console act.
+
 ### The failure table — never a 404 for a WhatsApp-minted link
 
 `/w/<publicKey>/enter?k=<code>` is the door every link points at. Whatever
@@ -746,3 +822,59 @@ for it to produce. This project has shipped application code ahead of its
 migrations three times already (Blocks 13a, 17b, 17c); `0186` is the shape
 that habit is most dangerous with, since a loud break at least announces
 itself. Apply it with this deploy, not "soon after".
+
+---
+
+## 14. Block 30d — the Station's own language, not the operator's
+
+`/messages/promo` — the same screen that already owns the two service
+hashtags and the system texts (§11) — carries one more field:
+**`companies.listener_locale`**, the language this Station's widget renders
+in for its listeners. Saved through `set_listener_locale`, gated on
+`templates.manage` like everything else on that screen.
+
+**Named `listener_locale`, deliberately not `locale`.** The console's own
+language stays on `profiles.locale`, painted by whichever operator is
+signed in — the owner's ruling of 2026-08-21 was that a Station decides what
+its *listeners* read, not what its *operators* read, and a column called
+`locale` sitting on the Station would be exactly the invitation to wire the
+console to it that this name exists to head off.
+
+**Null means the widget resolves language exactly as it did before this
+block** — the `locale` cookie the middleware writes from the signed-in
+operator's own preference, then `Accept-Language`. No Station already
+running is affected by the column's mere existence; only one that has
+actually been set sees anything different.
+
+When it does carry a value, `widget_frame_context` — the one door every
+widget request calls, in both presentations (§12) — returns it as
+`listenerLocale`, and the widget page wraps its own subtree in a fresh
+`NextIntlClientProvider` for that locale, overriding whatever the root
+layout's own provider chose. An operator who has set their own console to
+English and then opens the Station's own site now sees the widget in
+whatever language the Station chose — not the language they last picked for
+themselves, which was the defect this item was written against.
+
+**The widget's own content declares its language; the `<html>` element
+still does not.** Both frames (`EmbeddedFrame` and `AppFrame`, in
+`w/[publicKey]/frames.tsx`) carry `lang` on the element that wraps the
+widget's content, set from the same locale the widget's own provider
+resolves. `lang` is inherited from the nearest ancestor that declares it, so
+that is what actually governs the harm: the voice a screen reader uses, and
+whether a browser offers to translate a page already in the reader's
+language. A listener reading a Spanish widget is announced in Spanish.
+
+**What genuinely remains is the `<html lang>` attribute itself**, which the
+root layout (`src/app/layout.tsx`) sets once, from the request's own
+resolution, for every route this deployment serves — and which nothing
+rendered *inside* the route can reach. Changing it would need a root layout
+able to read the route it is about to serve before it renders, which this
+block did not attempt. **The residue is inert**: every string the widget
+renders sits inside one of those two frames, so on `/w` the document's own
+`lang` is the nearest declaration for no text at all — it names a language
+nothing beneath it is written in.
+
+A promotion's own question text is a second, smaller change riding the same
+release: the text an operator wrote in `promotion_questions.prompt` is now
+drawn above its alternatives (§9's `Question`) — before this block only the
+alternatives themselves reached the browser.

@@ -3,9 +3,11 @@ import {
   decideAutoOpen,
   enterRefusal,
   firstUnansweredScreen,
+  needsNoWalk,
   readSteps,
   screensFor,
   type WidgetPromotion,
+  type WidgetStep,
 } from '@/lib/widget/promotion-mapping';
 
 describe('enterRefusal', () => {
@@ -47,12 +49,12 @@ describe('readSteps', () => {
       readSteps([
         { kind: 'consent' },
         { kind: 'field', field: 'city' },
-        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
+        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta essa música?' },
       ]),
     ).toEqual([
       { kind: 'consent' },
       { kind: 'field', field: 'city' },
-      { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
+      { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta essa música?' },
     ]);
   });
 
@@ -81,6 +83,31 @@ describe('readSteps', () => {
       expect(readSteps(value)).toEqual([]);
     }
   });
+
+  it('keeps the prompt the door now sends', () => {
+    const steps = readSteps([
+      { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
+    ]);
+
+    expect(steps).toEqual([
+      { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
+    ]);
+  });
+
+  // THE DEPLOY ORDER THAT HAS BURNED THIS PROJECT BEFORE (Blocks 13a, 17b,
+  // 17c): frontend code landing ahead of its migration. This module already
+  // promises every question step a `prompt`; a door that has not applied
+  // 0264 yet sends a step with no such key. The step must still be pushed,
+  // not dropped for lacking one -- the door's own missing_answers check still
+  // expects an answer to this question regardless of whether 0264 has run,
+  // so a browser that dropped the step would refuse the entry forever.
+  it('keeps a question that carries no prompt', () => {
+    const steps = readSteps([{ kind: 'question', questionId: 'q1', questionKind: 'ESSAY' }]);
+
+    expect(steps).toEqual([
+      { kind: 'question', questionId: 'q1', questionKind: 'ESSAY', prompt: '' },
+    ]);
+  });
 });
 
 /** A minimal promotion, filled in only where a case needs to differ. */
@@ -92,19 +119,38 @@ function promotion(overrides: Partial<WidgetPromotion> = {}): WidgetPromotion {
     artUrl: null,
     thumbUrl: null,
     alreadyEntered: false,
-    steps: [],
+    // Block 30d, fix round 3. `[]` until this round, which is a list no door
+    // ever returns: `whatsapp_conversation_steps` opens every list with
+    // `consent`. It is also the shape that now decides `confirm`, so leaving
+    // it empty would have made every case here turn on a fixture that cannot
+    // occur. A case wanting a WALK says so by adding a field.
+    steps: [{ kind: 'consent' }],
     options: {},
     ...overrides,
   };
 }
 
 describe('decideAutoOpen', () => {
-  it('opens the promotion when it is in the list and not already entered', () => {
-    const target = promotion({ id: 'target' });
+  it('opens the promotion when it is in the list, not already entered, and has a walk', () => {
+    const target = promotion({
+      id: 'target',
+      steps: [{ kind: 'consent' }, { kind: 'field', field: 'city' }],
+    });
     expect(decideAutoOpen([promotion({ id: 'other' }), target], 'target')).toEqual({
       action: 'open',
       promotion: target,
     });
+  });
+
+  /**
+   * Block 30d, fix round 3. A link that names a promotion asking this listener
+   * nothing. `open` would draw a walk that has no screens -- which is how this
+   * arrival fell through to the generic promotion list, breaking the one
+   * promise the link makes.
+   */
+  it('answers confirm for a promotion with nothing left to ask', () => {
+    const target = promotion({ id: 'target', steps: [{ kind: 'consent' }] });
+    expect(decideAutoOpen([target], 'target')).toEqual({ action: 'confirm', promotion: target });
   });
 
   /**
@@ -116,7 +162,23 @@ describe('decideAutoOpen', () => {
    * own `alreadyEntered` label already on screen.
    */
   it('answers show-list rather than opening a promotion already entered', () => {
-    const entered = promotion({ id: 'target', alreadyEntered: true });
+    const entered = promotion({
+      id: 'target',
+      alreadyEntered: true,
+      steps: [{ kind: 'consent' }, { kind: 'field', field: 'city' }],
+    });
+    expect(decideAutoOpen([entered], 'target')).toEqual({ action: 'show-list' });
+  });
+
+  /**
+   * Block 30d, fix round 3. THE ORDER OF THE TWO TESTS INSIDE THE FUNCTION,
+   * pinned: already-entered is asked BEFORE nothing-left-to-ask. Reversed, a
+   * finished no-walk promotion would be offered an entry the door can only
+   * refuse with `already_entered` -- a button that cannot work, on a screen
+   * built to have exactly one that does.
+   */
+  it('still answers show-list for a no-walk promotion this listener has already entered', () => {
+    const entered = promotion({ id: 'target', alreadyEntered: true, steps: [{ kind: 'consent' }] });
     expect(decideAutoOpen([entered], 'target')).toEqual({ action: 'show-list' });
   });
 
@@ -143,8 +205,8 @@ describe('screensFor', () => {
         { kind: 'consent' },
         { kind: 'field', field: 'city' },
         { kind: 'field', field: 'address' },
-        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
-        { kind: 'question', questionId: 'q2', questionKind: 'ESSAY' },
+        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
+        { kind: 'question', questionId: 'q2', questionKind: 'ESSAY', prompt: 'Qual é a sua opinião?' },
       ]),
     ).toEqual([
       [{ kind: 'consent' }],
@@ -152,8 +214,8 @@ describe('screensFor', () => {
         { kind: 'field', field: 'city' },
         { kind: 'field', field: 'address' },
       ],
-      [{ kind: 'question', questionId: 'q1', questionKind: 'QUIZ' }],
-      [{ kind: 'question', questionId: 'q2', questionKind: 'ESSAY' }],
+      [{ kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' }],
+      [{ kind: 'question', questionId: 'q2', questionKind: 'ESSAY', prompt: 'Qual é a sua opinião?' }],
     ]);
   });
 
@@ -167,7 +229,7 @@ describe('firstUnansweredScreen', () => {
     { kind: 'consent' },
     { kind: 'field', field: 'city' },
     { kind: 'field', field: 'address' },
-    { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
+    { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
   ]);
 
   it('answers null when every step has something in it', () => {
@@ -208,5 +270,39 @@ describe('firstUnansweredScreen', () => {
    */
   it('never points at the consent screen', () => {
     expect(firstUnansweredScreen(screensFor([{ kind: 'consent' }]), {}, {})).toBeNull();
+  });
+});
+
+describe('needsNoWalk', () => {
+  it('is true when consent is the only step left', () => {
+    expect(needsNoWalk([{ kind: 'consent' }])).toBe(true);
+  });
+
+  it('is false when a field is still to fill', () => {
+    expect(needsNoWalk([{ kind: 'consent' }, { kind: 'field', field: 'full_name' }])).toBe(false);
+  });
+
+  it('is false when a question is still to answer', () => {
+    expect(
+      needsNoWalk([
+        { kind: 'consent' },
+        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
+      ]),
+    ).toBe(false);
+  });
+
+  /**
+   * The pair `screensFor` cannot tell apart on its own: a promotion whose walk
+   * is one screen IS a promotion with nothing to ask, so these two functions
+   * have to agree or the panel would draw a screen it also decided to skip.
+   */
+  it('agrees with screensFor about what a one-screen walk means', () => {
+    const nothingToAsk: WidgetStep[] = [{ kind: 'consent' }];
+    expect(screensFor(nothingToAsk)).toHaveLength(1);
+    expect(needsNoWalk(nothingToAsk)).toBe(true);
+
+    const somethingToAsk: WidgetStep[] = [{ kind: 'consent' }, { kind: 'field', field: 'city' }];
+    expect(screensFor(somethingToAsk).length).toBeGreaterThan(1);
+    expect(needsNoWalk(somethingToAsk)).toBe(false);
   });
 });
