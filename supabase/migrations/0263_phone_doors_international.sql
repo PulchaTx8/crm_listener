@@ -2,8 +2,17 @@
 
 -- Block 30d, item 1b, D4. The doors that write a listener's telephone number
 -- now write ONE shape: international_phone's answer (0260), computed from the
--- Station's own country. Six functions, and in each the phone is sanitised
--- once, on entry, before it is compared or stored.
+-- Station's own country. Seven functions, and in each the phone is sanitised
+-- once, on entry, before it is compared, stored or sent to.
+--
+-- THE WIDGET'S TWO DOORS MOVE TOGETHER. widget_request_code stores the number
+-- on the verification row and hands it to enqueue_whatsapp_outbound;
+-- widget_verify_code matches that row on the second call. Canonicalising
+-- either one alone breaks code entry outright, so they are adjacent below and
+-- compute the identical expression from the identical Station country. The
+-- design originally ruled that this pair should keep the raw value; that
+-- ruling was reversed on 2026-08-21, because keeping it meant Meta being asked
+-- to deliver to a national number and the visitor never receiving a code.
 --
 -- WHY AT THE DOORS AND NOT IN THE SHARED RESOLVER. apply_member_lookup and
 -- find_member_by_identifier (0061) are the single point every one of these
@@ -17,8 +26,9 @@
 -- EVERY BODY BELOW IS THE LIVE DEFINITION, dumped with pg_get_functiondef and
 -- edited, not re-derived from the migration that introduced the function. Most
 -- of these are live somewhere other than where they were introduced --
--- widget_verify_code on 0164 not 0161, create_member and update_member on 0220
--- not 0034 -- and re-typing an older body silently reverts every repair made
+-- widget_request_code and widget_verify_code on 0164 not 0161, create_member
+-- and update_member on 0220 not 0034 -- and re-typing an older body silently
+-- reverts every repair made
 -- since, with nothing turning red. 0172's header records the time this project
 -- did exactly that.
 --
@@ -410,9 +420,173 @@ begin
 end;
 $$;
 
--- 4. widget_verify_code -- live on 0164 (0161 introduced it). The door the
--- owner's report is about: a visitor typing the local form on the Station's
--- own website became a second listener.
+-- 4. widget_request_code -- live on 0164 (0161 introduced it). The widget's
+-- FIRST call: it mints the verification row and asks WhatsApp to carry the
+-- six digits. Read with the fifth function below; neither is correct alone.
+create or replace function public.widget_request_code(
+  p_public_key   text,
+  p_phone        text,
+  p_code_hash    text,
+  p_code_plain   text,
+  p_ttl_seconds  integer default 600
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_install     public.widget_installations;
+  v_country     text;
+  v_phone       text;
+  v_integration uuid;
+  v_template    public.message_templates;
+  v_id          uuid;
+  v_outbox_id   uuid;
+begin
+  -- 0164: the two joins. `w.*` rather than `*` now that the from-list has
+  -- three relations in it -- `select *` would try to build a
+  -- widget_installations record out of every column of all three and fail.
+  select w.* into v_install
+    from public.widget_installations w
+    join public.companies c
+      on c.id = w.company_id
+     and c.deleted_at is null
+     and c.status = 'active'
+    join public.organizations o
+      on o.id = w.organization_id
+     and o.suspended_at is null
+   where w.public_key = p_public_key and w.enabled and w.deleted_at is null;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'unknown_installation',
+                              'verification_id', null);
+  end if;
+
+  -- Block 30d, item 1b. THE CANONICAL NUMBER IS WHAT IS STORED AND WHAT IS
+  -- SENT TO, and the design's first ruling here -- keep whatever the visitor
+  -- typed, because widget_verify_code matches the row against what the browser
+  -- posts back -- was reversed on 2026-08-21 for a reason that ruling did not
+  -- weigh: enqueue_whatsapp_outbound below is handed this same value, and
+  -- Meta cannot deliver to a national number. A visitor typing 11 98888-7777
+  -- got a row, an outbox message, an 'ok' -- and no code, ever, which from
+  -- their side is indistinguishable from the widget being broken.
+  --
+  -- Storing the canonical form does not break the second call, it fixes it:
+  -- widget_verify_code computes THE SAME expression from THE SAME
+  -- installation's country, so the ordinary case (the browser posting the same
+  -- string twice) matches exactly as it did, and the case that used to fail --
+  -- 11 98888-7777 to ask, +55 11 98888-7777 to enter -- now matches too. The
+  -- two functions have to move together and are adjacent here for that reason.
+  --
+  -- The country is read on its own rather than alongside the installation
+  -- because PL/pgSQL refuses `select w.*, c.country into v_install, v_country`
+  -- outright: "record variable cannot be part of multiple-item INTO list".
+  select c.country into v_country
+    from public.companies c
+   where c.id = v_install.company_id;
+
+  v_phone := public.international_phone(p_phone, v_country);
+
+  -- `and enabled`: an operator who switches WhatsApp off temporarily leaves a
+  -- row this lookup would otherwise FIND, which would then reach
+  -- enqueue_whatsapp_outbound and hit its own check (0111) -- an unhandled
+  -- P0002 exception surfacing to the caller instead of one of this
+  -- function's named answers, which is exactly the failure naming the
+  -- reasons exists to prevent (see the header comment above).
+  --
+  -- STILL 'no_integration', not a fifth reason: absent and switched-off are
+  -- one answer here on purpose. Both put the operator on the same screen with
+  -- the same next step -- go configure or re-enable WhatsApp for this Station
+  -- -- and a distinction that changes nothing about what anybody does next
+  -- would still need a fifth string translated into three locales to say so.
+  select id into v_integration
+    from public.integrations
+   where company_id = v_install.company_id
+     and provider = 'WHATSAPP'
+     and enabled
+     and deleted_at is null;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'no_integration',
+                              'verification_id', null);
+  end if;
+
+  select * into v_template
+    from public.message_templates
+   where company_id = v_install.company_id
+     and purpose = 'WEB_VERIFICATION'
+     and deleted_at is null;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'no_template',
+                              'verification_id', null);
+  end if;
+
+  insert into public.widget_verifications
+    (organization_id, company_id, installation_id, phone, code_hash, expires_at)
+  values
+    (v_install.organization_id, v_install.company_id, v_install.id,
+     v_phone, p_code_hash,
+     now() + make_interval(secs => p_ttl_seconds))
+  returning id into v_id;
+
+  -- The dedupe key is the VERIFICATION, not the phone: two codes legitimately
+  -- requested a minute apart are two messages, and collapsing them on the
+  -- number would silently drop the second -- leaving a visitor typing a code
+  -- that was superseded.
+  --
+  -- p_body is null, ON PURPOSE, not a placeholder for the masked text. When
+  -- p_template_purpose is given, 0111's enqueue_whatsapp_outbound ignores its
+  -- p_body argument entirely and renders `body` itself from p_template_variables
+  -- (D6: "rendering happens HERE and only here", so the audit copy can never
+  -- disagree with what was actually sent) -- so any value passed here would be
+  -- silently discarded, and passing null says so instead of hiding it behind a
+  -- value that looks used.
+  v_outbox_id := public.enqueue_whatsapp_outbound(
+    v_integration,
+    v_phone,
+    null,
+    null,
+    v_id::text || ':widget-verification',
+    'WEB_VERIFICATION',
+    -- THE ONLY PLACE THE SIX DIGITS EXIST outside the visitor's handset.
+    -- sendTemplate (src/services/whatsapp.ts) builds Meta's template
+    -- parameters from THIS column, not from `body` -- so this is also the
+    -- value that actually reaches the phone. See 0161's header comment on this
+    -- function for why the raw value is an argument here when it is
+    -- forbidden everywhere else in this codebase.
+    jsonb_build_array(p_code_plain));
+
+  if v_outbox_id is not null then
+    -- enqueue_whatsapp_outbound just wrote `body` as the template rendered
+    -- WITH THE LIVE CODE, because D6 renders body and template_variables from
+    -- the same source on purpose so they cannot drift for an ordinary send.
+    -- A verification code is not an ordinary send: `body` is never pruned
+    -- (0059's comment on the column is explicit that this is deliberate, so
+    -- an operator can still answer "what were they told" after retention has
+    -- taken the phone number), which means a live code left in it would
+    -- outlive every mechanism meant to expire the code itself. Overwritten
+    -- here, in the SAME transaction as the insert above -- Postgres has no
+    -- dirty-read isolation level at all, at any setting, so no concurrent
+    -- reader can see the row until this function's transaction commits, by
+    -- which point `body` already holds the masked text and the unmasked
+    -- value this statement replaces was never visible to anybody and never
+    -- durable. jsonb_build_array(p_code_plain) alone remains as the one place
+    -- the six digits live in the database, exactly as 0161's header comment
+    -- requires.
+    update public.outbox_messages
+       set body = replace(v_template.body, '{{1}}', '******')
+     where id = v_outbox_id;
+  end if;
+
+  return jsonb_build_object('ok', true, 'reason', null, 'verification_id', v_id);
+end;
+$$;
+
+-- 5. widget_verify_code -- live on 0164 (0161 introduced it). The widget's
+-- SECOND call, and the door the owner's report is about: a visitor typing the
+-- local form on the Station's own website became a second listener.
 create or replace function public.widget_verify_code(
   p_public_key text,
   p_phone      text,
@@ -460,11 +634,15 @@ begin
   -- INTO list" -- and widening v_install to a bare `record` would rewrite every
   -- v_install reference below for the sake of one column read once per call.
   --
-  -- SANITISED FOR THE LOOKUP AND THE REGISTRATION IN STEPS 7 AND 8 ONLY. Step 2
-  -- below still matches widget_verifications.phone against the RAW p_phone, and
-  -- must: widget_request_code wrote that row with the spelling the visitor
-  -- typed and the browser posts that same spelling back on this second call, so
-  -- canonicalising one side without the other stops code entry working at all.
+  -- ONE VALUE FOR EVERY THING THIS FUNCTION DOES WITH A NUMBER: the
+  -- verification row it looks up in step 2, the listener it resolves in step 7,
+  -- and the one it registers in step 8. widget_request_code above computes THE
+  -- SAME expression from THE SAME installation's country and stores its answer,
+  -- so the two calls agree by construction rather than by both being left raw.
+  -- The ordinary case is unchanged -- the browser posts the same string twice
+  -- and both canonicalise to the same value -- and the case that used to fail
+  -- now works: a visitor who asks with 11 98888-7777 and enters with
+  -- +55 11 98888-7777 matched nothing before and matches the row now.
   select c.country into v_country
     from public.companies c
    where c.id = v_install.company_id;
@@ -490,7 +668,7 @@ begin
   select * into v_verif
     from public.widget_verifications
    where installation_id = v_install.id
-     and phone = p_phone
+     and phone = v_phone
      and consumed_at is null
    order by created_at desc
    limit 1
@@ -624,7 +802,7 @@ begin
 end;
 $$;
 
--- 5. api_record_music_request -- live on 0152. Block 15's external intake:
+-- 6. api_record_music_request -- live on 0152. Block 15's external intake:
 -- another system posting a music request on a listener's behalf.
 create or replace function public.api_record_music_request(
   -- p_request_external_id and p_listener_name carry defaults and sit after
@@ -865,7 +1043,7 @@ begin
 end;
 $$;
 
--- 6. withdraw_marketing_by_phone -- live on 0231. The stop word. It writes no
+-- 7. withdraw_marketing_by_phone -- live on 0231. The stop word. It writes no
 -- telephone number; it only has to find the right listener by one.
 create or replace function public.withdraw_marketing_by_phone(
   p_integration_id uuid,
@@ -964,7 +1142,7 @@ end;
 $$;
 
 
--- The ACLs these six carried before this file ran, restated verbatim. A
+-- The ACLs these seven carried before this file ran, restated verbatim. A
 -- create-or-replace preserves them, so nothing here changes anything today;
 -- they are written down so the next person who has to DROP one of these
 -- functions -- to move a signature, the one thing create-or-replace cannot do
@@ -978,6 +1156,9 @@ grant execute on function public.create_member(uuid, text, text, text, text, tex
 
 revoke execute on function public.update_member(uuid, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, text) from public;
 grant execute on function public.update_member(uuid, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, text) to authenticated;
+
+revoke execute on function public.widget_request_code(text, text, text, text, integer) from public;
+grant execute on function public.widget_request_code(text, text, text, text, integer) to service_role;
 
 revoke execute on function public.widget_verify_code(text, text, text, text) from public;
 grant execute on function public.widget_verify_code(text, text, text, text) to service_role;
@@ -1008,4 +1189,4 @@ grant execute on function public.normalize_phone(text) to service_role;
 -- say what is actually wired -- and to name what is not, so the next reader
 -- goes and looks instead of trusting it.
 comment on function public.international_phone(text, text) is
-  'One telephone number in the form this database already stores: a leading plus, then the country code, then the national number, and no other punctuation -- the shape every members.phone row in production already carries. Goes through normalize_phone (0031) for the comparison rather than stripping punctuation itself, so it cannot drift from members.phone_normalized, the generated column whose value decides who is who; that column drops the plus, so identity is unaffected by it. IDEMPOTENT: running this over its own output returns the same string, which is what makes the 0262 repair safe to re-run. Returns the digits UNCHANGED AND UNPREFIXED when country_phone_rule has no row for the country and when the length matches neither range -- refusing would stop a listener registering because an administrator left a select empty, guessing would split one person into two rows, and a plus in front of a number whose country nobody established would be a claim this function has not earned. Block 30d, item 1b: 0263 wired the console (create_member, update_member), the spreadsheet (resolve_or_create_member, which import_participations calls once per row), the widget (widget_verify_code) and the external API (api_record_music_request) to this function, so those four cannot come to disagree about what a number is. THE BOT IS NOT WIRED YET: ingest_whatsapp_event and ingest_link_intent (0179) still register a listener under whatsapp_local_phone''s LOCAL form, which is why every door 0263 touched goes on searching the raw spelling as well as this one.';
+  'One telephone number in the form this database already stores: a leading plus, then the country code, then the national number, and no other punctuation -- the shape every members.phone row in production already carries. Goes through normalize_phone (0031) for the comparison rather than stripping punctuation itself, so it cannot drift from members.phone_normalized, the generated column whose value decides who is who; that column drops the plus, so identity is unaffected by it. IDEMPOTENT: running this over its own output returns the same string, which is what makes the 0262 repair safe to re-run. Returns the digits UNCHANGED AND UNPREFIXED when country_phone_rule has no row for the country and when the length matches neither range -- refusing would stop a listener registering because an administrator left a select empty, guessing would split one person into two rows, and a plus in front of a number whose country nobody established would be a claim this function has not earned. Block 30d, item 1b: 0263 wired the console (create_member, update_member), the spreadsheet (resolve_or_create_member, which import_participations calls once per row), the widget (widget_request_code and widget_verify_code together, so the row one writes is the row the other matches) and the external API (api_record_music_request) to this function, so those four cannot come to disagree about what a number is. THE BOT IS NOT WIRED YET: ingest_whatsapp_event and ingest_link_intent (0179) still register a listener under whatsapp_local_phone''s LOCAL form, which is why every door 0263 touched goes on searching the raw spelling as well as this one.';

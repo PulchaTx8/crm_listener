@@ -1,5 +1,5 @@
 begin;
-select plan(18);
+select plan(22);
 
 -- The ordinary Brazilian mobile, typed as an operator types it.
 select is(public.international_phone('(11) 99999-8888', 'BR'), '+5511999998888',
@@ -230,6 +230,93 @@ select is(
   (select (answer ->> 'member_id')::uuid from t30d_international),
   (select (answer ->> 'member_id')::uuid from t30d_local),
   'and the international spelling of the same number agrees');
+
+-- 0263, THE WIDGET'S TWO DOORS, WHICH ARE ONE DOOR IN TWO CALLS.
+-- widget_request_code mints the verification row and asks WhatsApp to carry
+-- the six digits; widget_verify_code matches that row on the second call. The
+-- design first ruled that both should keep the number the visitor typed; the
+-- ruling was reversed on 2026-08-21 because keeping it meant handing Meta a
+-- national number, which it cannot deliver -- so a visitor who typed the local
+-- form got an 'ok', a row, an outbox message, and no code, ever.
+--
+-- The two are asserted together because neither is correct alone: canonicalise
+-- the write without the read and code entry stops working outright, and the
+-- other way round is the same failure mirrored. Reusing the Station seeded
+-- above (country 'BR'), and a NUMBER OF ITS OWN so a failure here cannot be a
+-- failure of the manual door above wearing a different hat.
+insert into public.widget_installations
+  (id, organization_id, company_id, public_key, enabled, allowed_origins)
+values
+  ('00000000-0000-0000-0000-0000000030e5',
+   '00000000-0000-0000-0000-0000000030e1',
+   '00000000-0000-0000-0000-0000000030e2',
+   'pw_phonedoors30d012345678', true, array['https://radio30d.com.br']);
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, waba_id,
+   display_phone_number, enabled)
+values
+  ('00000000-0000-0000-0000-0000000030e6',
+   '00000000-0000-0000-0000-0000000030e1',
+   '00000000-0000-0000-0000-0000000030e2',
+   'WHATSAPP', '30d111222', '30d444555', '+551130000030', true);
+insert into public.message_templates
+  (organization_id, company_id, purpose, channel, internal_name, name, language,
+   body, variables)
+values
+  ('00000000-0000-0000-0000-0000000030e1',
+   '00000000-0000-0000-0000-0000000030e2',
+   'WEB_VERIFICATION', 'WHATSAPP', 'web_verification_30d', 'web_verification_30d',
+   'pt_BR', 'Seu codigo e {{1}}.', array['VERIFICATION_CODE']::public.template_variable[]);
+
+-- TYPED THE WAY A VISITOR TYPES IT, with no country code, which is the input
+-- the whole item is about.
+select public.widget_request_code(
+  'pw_phonedoors30d012345678', '11 97777-6666', repeat('e', 64), '246810');
+
+-- 19: the row carries the canonical number, not the keystrokes. Before 0263 it
+-- held '11 97777-6666'.
+select is(
+  (select phone from public.widget_verifications
+    where installation_id = '00000000-0000-0000-0000-0000000030e5'
+    order by created_at desc limit 1),
+  '+5511977776666',
+  'the widget stores the canonical number on the verification row');
+
+-- 20: AND THE SAME VALUE IS WHAT WAS SENT TO. This is the assertion that
+-- covers the reported harm rather than its cause: outbox_messages.to_phone is
+-- what sendTemplate hands Meta, and '11 97777-6666' is not a number Meta can
+-- deliver to, so before 0263 this visitor never received a code at all.
+select is(
+  (select to_phone from public.outbox_messages
+    where dedupe_key like '%:widget-verification'
+    order by created_at desc limit 1),
+  '+5511977776666',
+  'and the code is sent to the number WhatsApp can actually reach');
+
+-- 21: the ordinary case, which is the one canonicalising the write could have
+-- broken. The browser posts the same string on both calls, both calls compute
+-- the same expression from the same Station's country, so the row still
+-- matches.
+select is(
+  public.widget_verify_code(
+    'pw_phonedoors30d012345678', '11 97777-6666', repeat('e', 64),
+    'Ouvinte Widget') ->> 'ok',
+  'true',
+  'and the second call, spelled the same way, still finds that row');
+
+-- 22: and the case that never worked. Asking with the local form and entering
+-- with the international one answered no_pending_code while both sides were
+-- compared raw; one canonical value on both sides is what makes these the same
+-- number.
+select public.widget_request_code(
+  'pw_phonedoors30d012345678', '11 96666-5555', repeat('f', 64), '135791');
+
+select is(
+  public.widget_verify_code(
+    'pw_phonedoors30d012345678', '+55 11 96666-5555', repeat('f', 64),
+    'Ouvinte Widget 2') ->> 'ok',
+  'true',
+  'and a visitor who asks in one spelling and enters in the other matches too');
 
 select * from finish();
 rollback;

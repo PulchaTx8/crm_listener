@@ -3,15 +3,25 @@ select plan(32);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-000000000201', 'Org widget verify');
-insert into public.companies (id, organization_id, name, timezone) values
+
+-- country 'BR' ON EVERY STATION BELOW, and it is load-bearing from Block 30d
+-- onwards rather than decoration. widget_request_code stores
+-- international_phone(p_phone, the Station's country) on the verification row
+-- and hands the same value to enqueue_whatsapp_outbound (0263), so a Station
+-- with no country would store '5511999998888' -- the digits, unprefixed --
+-- where every assertion in this file looks the row up by the '+5511999998888'
+-- it typed. Brazilian Stations are what this deployment has (0261 backfilled
+-- all six), and for one of them international_phone answers the typed string
+-- unchanged, which is why nothing else in this file had to move.
+insert into public.companies (id, organization_id, name, timezone, country) values
   ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000201',
-   'Station widget verify', 'America/Sao_Paulo');
+   'Station widget verify', 'America/Sao_Paulo', 'BR');
 -- A second Station in the same Org: widget_installations_company_unique (0159)
 -- is one installation per Station, so the disabled fixture below needs a
 -- Station of its own rather than sharing 000...202 with the enabled one.
-insert into public.companies (id, organization_id, name, timezone) values
+insert into public.companies (id, organization_id, name, timezone, country) values
   ('00000000-0000-0000-0000-000000000205', '00000000-0000-0000-0000-000000000201',
-   'Station widget verify disabled', 'America/Sao_Paulo');
+   'Station widget verify disabled', 'America/Sao_Paulo', 'BR');
 insert into public.widget_installations
   (id, organization_id, company_id, public_key, enabled, allowed_origins)
 values
@@ -86,9 +96,9 @@ select is(
 -- off. The door's own comment on this lookup says the two collapse to the
 -- same reason on purpose; this is what proves it rather than just asserting
 -- the fixture-free case above.
-insert into public.companies (id, organization_id, name, timezone) values
+insert into public.companies (id, organization_id, name, timezone, country) values
   ('00000000-0000-0000-0000-000000000206', '00000000-0000-0000-0000-000000000201',
-   'Station widget verify integration disabled', 'America/Sao_Paulo');
+   'Station widget verify integration disabled', 'America/Sao_Paulo', 'BR');
 insert into public.widget_installations
   (id, organization_id, company_id, public_key, enabled, allowed_origins)
 values
@@ -293,9 +303,9 @@ select is(
 -- have been dropped from the lookup unnoticed -- and an archived installation
 -- that still frames is a hole nothing on any screen would show.
 -- ---------------------------------------------------------------------------
-insert into public.companies (id, organization_id, name, timezone) values
+insert into public.companies (id, organization_id, name, timezone, country) values
   ('00000000-0000-0000-0000-000000000209', '00000000-0000-0000-0000-000000000201',
-   'Station widget verify archived', 'America/Sao_Paulo');
+   'Station widget verify archived', 'America/Sao_Paulo', 'BR');
 insert into public.widget_installations
   (id, organization_id, company_id, public_key, enabled, allowed_origins, deleted_at)
 values
