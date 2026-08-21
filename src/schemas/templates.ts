@@ -67,6 +67,11 @@ export type TemplatePurpose = Enums<'template_purpose'>;
 const TEMPLATE_PURPOSE_SET: Record<TemplatePurpose, true> = {
   PICKUP_REMINDER: true,
   WEB_VERIFICATION: true,
+  // Block 30d, D9 (0266). One purpose per answer apply_participation can give.
+  PARTICIPATION_CONFIRMED: true,
+  PARTICIPATION_DUPLICATE: true,
+  PARTICIPATION_TOO_SOON: true,
+  PARTICIPATION_OVER_LIMIT: true,
 };
 
 /**

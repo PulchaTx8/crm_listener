@@ -96,14 +96,17 @@ select ok(
 
 -- 11: the purpose enum. 0110 shipped PICKUP_REMINDER alone and its comment
 -- asked for what happened next in writing -- "a later block adds a second
--- rather than renaming this one, because Task 4 references it by name" -- and
--- 0160 (Block 17a) added WEB_VERIFICATION for the web widget's code. Both
--- values are asserted, in enum order, so a third arrives here as a failure
--- rather than as a silent third card the Templates screen would have to grow.
+-- rather than renaming this one, because Task 4 references it by name" --
+-- 0160 (Block 17a) added WEB_VERIFICATION for the web widget's code, and 0266
+-- (Block 30d, D9) added the four PARTICIPATION_* purposes apply_participation's
+-- four answers need. All six values are asserted, in enum order, so a seventh
+-- arrives here as a failure rather than as a silent card the Templates screen
+-- would have to grow.
 select is(
   enum_range(null::public.template_purpose)::text[],
-  array['PICKUP_REMINDER', 'WEB_VERIFICATION'],
-  'template_purpose has PICKUP_REMINDER and WEB_VERIFICATION');
+  array['PICKUP_REMINDER', 'WEB_VERIFICATION', 'PARTICIPATION_CONFIRMED',
+        'PARTICIPATION_DUPLICATE', 'PARTICIPATION_TOO_SOON', 'PARTICIPATION_OVER_LIMIT'],
+  'template_purpose has PICKUP_REMINDER, WEB_VERIFICATION and the four PARTICIPATION_* purposes');
 
 -- 12: a blank name is refused. '   ' would satisfy NOT NULL and register a
 -- template whose recorded name does not match what Meta approved.

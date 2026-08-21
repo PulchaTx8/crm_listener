@@ -76,6 +76,44 @@ function purposeDetails(
       nameExample: t('webVerification'),
       sends: [t('purposeWebVerificationSendsCode')],
     },
+    // Block 30d, D9 (0266). One purpose per answer apply_participation can
+    // give on the WhatsApp fast path (0267 is what calls it) -- confirmed,
+    // already entered, entered too recently, no chances left -- because the
+    // four sentences carry different variables and a single template whose
+    // body is nearly all placeholder is the shape Meta rejects. All four are
+    // Utility category, unlike WEB_VERIFICATION's Authentication above: the
+    // listener already opened the 24-hour window by texting the hashtag, so
+    // none of them carries an OTP button.
+    PARTICIPATION_CONFIRMED: {
+      title: t('participationConfirmed'),
+      when: t('purposeParticipationConfirmedWhen'),
+      nameExample: t('purposeParticipationConfirmedName'),
+      sends: [t('purposeParticipationConfirmedSendsPromotion')],
+    },
+    PARTICIPATION_DUPLICATE: {
+      title: t('participationDuplicate'),
+      when: t('purposeParticipationDuplicateWhen'),
+      nameExample: t('purposeParticipationDuplicateName'),
+      sends: [t('purposeParticipationDuplicateSendsPromotion')],
+    },
+    PARTICIPATION_TOO_SOON: {
+      title: t('participationTooSoon'),
+      when: t('purposeParticipationTooSoonWhen'),
+      nameExample: t('purposeParticipationTooSoonName'),
+      sends: [
+        t('purposeParticipationTooSoonSendsPromotion'),
+        t('purposeParticipationTooSoonSendsNextChance'),
+      ],
+    },
+    PARTICIPATION_OVER_LIMIT: {
+      title: t('participationOverLimit'),
+      when: t('purposeParticipationOverLimitWhen'),
+      nameExample: t('purposeParticipationOverLimitName'),
+      sends: [
+        t('purposeParticipationOverLimitSendsPromotion'),
+        t('purposeParticipationOverLimitSendsLimit'),
+      ],
+    },
   };
 }
 

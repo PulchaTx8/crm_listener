@@ -6650,7 +6650,13 @@ export type Database = {
         | "COUNTRY"
         | "MARKETING_CONSENT"
         | "MARKETING_STOPPED"
-      template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
+      template_purpose:
+        | "PICKUP_REMINDER"
+        | "WEB_VERIFICATION"
+        | "PARTICIPATION_CONFIRMED"
+        | "PARTICIPATION_DUPLICATE"
+        | "PARTICIPATION_TOO_SOON"
+        | "PARTICIPATION_OVER_LIMIT"
       template_variable:
         | "LISTENER_FIRST_NAME"
         | "LISTENER_FULL_NAME"
@@ -6925,7 +6931,14 @@ export const Constants = {
         "MARKETING_CONSENT",
         "MARKETING_STOPPED",
       ],
-      template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
+      template_purpose: [
+        "PICKUP_REMINDER",
+        "WEB_VERIFICATION",
+        "PARTICIPATION_CONFIRMED",
+        "PARTICIPATION_DUPLICATE",
+        "PARTICIPATION_TOO_SOON",
+        "PARTICIPATION_OVER_LIMIT",
+      ],
       template_variable: [
         "LISTENER_FIRST_NAME",
         "LISTENER_FULL_NAME",
