@@ -18,6 +18,17 @@ select plan(35);
 -- one door still writing whatsapp_local_phone's LOCAL form. It writes
 -- international_phone's answer now, and the second search it makes -- the
 -- local form -- has to go on finding the listeners it registered before that.
+--
+-- NO SECTION BELOW NAMES AN ASSERTION NUMBER, and that is a rule rather than a
+-- style. This file grew four times; every growth inserted cases in the middle,
+-- and every insertion silently falsified the headers below it -- "12-15" became
+-- 12-16, "16-17" became 17-18, and so on down the file, each one a claim about
+-- position that nothing checks and no test breaks. It is the same defect as a
+-- comment citing a line number, one file over. So a header names WHAT its cases
+-- check and a cross-reference names the case it means ("the canonical-phone
+-- check", "the control for the entry-without-an-installation case"). Numbers
+-- appear only where the position is itself the subject, and there is currently
+-- nowhere that it is. A case inserted anywhere now leaves every comment true.
 
 -- ---------------------------------------------------------------------------
 -- Fixtures.
@@ -41,11 +52,10 @@ select plan(35);
 -- destroy the entry it confirms.
 --
 -- country = 'BR' on every one of them. Without it international_phone returns
--- the digits unchanged (0260) and assertion 17 -- the canonical-phone check,
--- which was assertion 11 before the placement and tenant-liveness cases were
--- inserted above it -- would pass for the wrong reason: the stored value would equal
--- the delivered one because nothing was applied, not because the canonical
--- form was.
+-- the digits unchanged (0260) and THE CANONICAL-PHONE CHECK -- the case below
+-- that reads members.phone back after the bot registers a stranger -- would
+-- pass for the wrong reason: the stored value would equal the delivered one
+-- because nothing was applied, not because the canonical form was.
 -- ---------------------------------------------------------------------------
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-0000000030f0', 'Org fast entry');
@@ -114,9 +124,9 @@ values
 
 -- Promo Rapida asks for full_name and NOTHING ELSE -- no questions at all, so
 -- the step list for a listener who has a name is consent and nothing more.
--- That one requested field is what makes assertion 5 possible: it is the only
--- way, with no question askable since 19a, for a step list to still hold
--- something.
+-- That one requested field is what makes the LINK case possible at all: with no
+-- question askable since 19a, an unfilled requested field is the only way a
+-- step list can still hold something.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
    whatsapp_enabled, hashtag, rules, requested_fields)
@@ -136,8 +146,9 @@ values
    now() - interval '1 day', now() + interval '30 days',
    true, '#SEMWIDGET', 'Regulamento da Promo Sem Widget.', '{}'),
   -- The same Station, still no installation, but this one ASKS for something.
-  -- It is the control for assertion 9: what needs the widget still meets the
-  -- gate, so a green 9 cannot be an accidentally deleted gate.
+  -- It is the control for the entry-without-an-installation case: what needs
+  -- the widget still meets the gate, so that case going green cannot be an
+  -- accidentally deleted gate.
   ('00000000-0000-0000-0000-0000000030f7', '00000000-0000-0000-0000-0000000030f0',
    '00000000-0000-0000-0000-0000000030f9', 'Promo Sem Widget Que Pergunta',
    now() - interval '1 day', now() + interval '30 days',
@@ -264,7 +275,7 @@ returns public.outbox_messages language sql as $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- 1-4. Nothing left to ask: the entry is taken now, and the reply is the
+-- NOTHING LEFT TO ASK: the entry is taken now, and the reply is the
 --      sentence 0062 already wrote, sent as a session message because this
 --      Station has registered no template yet (D9, first half). Every Station
 --      is in that state on the day this ships.
@@ -294,7 +305,7 @@ select alike(
   'and it carries the sentence whatsapp_reply_body already wrote');
 
 -- ---------------------------------------------------------------------------
--- 5-6. The SAME promotion, a listener missing a field it asks for. The link is
+-- A FIELD STILL TO FILL, at the SAME promotion. The link is
 --      still the answer: since 19a the bot cannot ask for a name, so entering
 --      them would leave the promotion's own requested field empty for ever --
 --      which D8 rejected in as many words.
@@ -312,9 +323,9 @@ select is(
   'and nothing was written for them: an unfollowed link costs nothing');
 
 -- ---------------------------------------------------------------------------
--- 7-8. The pre-check's own branch, which now goes through the same envelope.
---      A second message from the listener of assertion 1 is a DUPLICATE, still
---      recorded and still answered.
+-- THE PRE-CHECK'S OWN BRANCH, which now goes through the same envelope.
+--      A second message from the listener who was entered first is a DUPLICATE,
+--      still recorded and still answered.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.ingest('00000000-0000-0000-0000-0000000030e3', 'wamid.FAST-3',
@@ -328,21 +339,21 @@ select alike(
   'and the pre-check''s reply reaches outbox_messages through the envelope too');
 
 -- ---------------------------------------------------------------------------
--- 9-11. PLACEMENT, and it is the whole of what fix round 1 changed. Station B
---       has an integration and a ruled, live promotion and NO widget
---       installation -- the state EVERY Station starts in, since switching the
---       widget on is a separate console act (0159).
+-- PLACEMENT AGAINST THE no_installation GATE, which is the whole of what fix
+-- round 1 changed. Station B has an integration and a ruled, live promotion and
+-- NO widget installation -- the state EVERY Station starts in, since switching
+-- the widget on is a separate console act (0159).
 --
---       The fast path sits ABOVE the no_installation gate, so this listener is
---       entered and answered: that gate exists because a LINK cannot be minted
---       without an installation, and this path mints none. With the gate above
---       the fast path instead -- the order this migration first shipped --
---       assertion 9 comes back `no_installation` and 10 counts zero, which is
---       the fast path dead on arrival at every freshly provisioned Station.
+-- The fast path sits ABOVE that gate, so this listener is entered and answered:
+-- the gate exists because a LINK cannot be minted without an installation, and
+-- this path mints none. With the gate above the fast path instead -- the order
+-- this migration first shipped -- the entry case below answers `no_installation`
+-- and its participation count reads zero, which is the fast path dead on arrival
+-- at every freshly provisioned Station.
 --
---       Assertion 11 is the other half: what still NEEDS the link still meets
---       the gate. Same Station, same missing installation, a promotion asking
---       for a field this listener has not got.
+-- The third case is the other half: what still NEEDS the link still meets the
+-- gate. Same Station, same missing installation, a promotion asking for a field
+-- this listener has not got.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.ingest('00000000-0000-0000-0000-0000000030e5', 'wamid.FAST-5',
@@ -364,35 +375,33 @@ select is(
   'but a listener with a field still to fill needs the widget, and without an installation that Station still finishes under its own name');
 
 -- ---------------------------------------------------------------------------
--- 12-16. TENANT LIVENESS, and this is the case fix round 1 broke and fix round
---        2 restores. Until the fast path moved, the no_installation gate was
---        the only thing enforcing it PAST ITSELF: v_install is resolved
---        through a join carrying c.deleted_at is null, c.status = 'active' and
---        o.suspended_at is null, so a suspended Station or a blocked
---        Organization could not reach anything past that gate. The gate
---        advertised one job and did two; moving the fast path above it took
---        the first and left the second.
+-- TENANT LIVENESS, the case fix round 1 broke and fix round 2 restores. Until
+-- the fast path moved, the no_installation gate was the only thing enforcing it
+-- PAST ITSELF: v_install is resolved through a join carrying c.deleted_at is
+-- null, c.status = 'active' and o.suspended_at is null, so a suspended Station
+-- or a blocked Organization could not reach anything past that gate. The gate
+-- advertised one job and did two; moving the fast path above it took the first
+-- and left the second.
 --
---        PAST THAT GATE IS THE WHOLE CLAIM. An earlier version of this comment
---        said such a tenant "could not reach any yes at all", and that was
---        false in both directions of time: the pre-check branch sits ABOVE both
---        gates (0179) and records a participation and enqueues a reply at a
---        suspended Station today, exactly as it did before this block. These
---        cases pin the fast path, which is what this task moved.
+-- PAST THAT GATE IS THE WHOLE CLAIM. An earlier version of this comment said
+-- such a tenant "could not reach any yes at all", and that was false in both
+-- directions of time: the pre-check branch sits ABOVE both gates (0179) and
+-- records a participation and enqueues a reply at a suspended Station today,
+-- exactly as it did before this block. These cases pin the fast path, which is
+-- what this task moved.
 --
---        The bypass was real, not theoretical: with the fast path ungated, a
---        suspended Station answered `recorded`, wrote the participation AND
---        enqueued the confirmation. 0164 gives the phrase "THIS IS THE ENDPOINT
---        THAT SPENDS MONEY" to widget_request_code and not to this door, so
---        what carries over is the economics and not the citation: a send from
---        here bills the lapsed Station the same way, which is what 0164's own
---        header means by "the same class of door with the same consequence,
---        plus a bill".
+-- The bypass was real, not theoretical: with the fast path ungated, a suspended
+-- Station answered `recorded`, wrote the participation AND enqueued the
+-- confirmation. 0164 gives the phrase "THIS IS THE ENDPOINT THAT SPENDS MONEY"
+-- to widget_request_code and not to this door, so what carries over is the
+-- economics and not the citation: a send from here bills the lapsed Station the
+-- same way, which is what 0164's own header means by "the same class of door
+-- with the same consequence, plus a bill".
 --
---        ALL THREE COLUMNS, one case each, because the fast path tests all
---        three itself and a test of one proves nothing about the others. The
---        outbox assertion is deliberate: an entry written and no message sent
---        would still be a bill this Station must not receive.
+-- ALL THREE COLUMNS, one case each, because the fast path tests all three
+-- itself and a test of one proves nothing about the others. The outbox
+-- assertion is deliberate: an entry written and no message sent would still be
+-- a bill this Station must not receive.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.ingest('00000000-0000-0000-0000-0000000030eb', 'wamid.FAST-11',
@@ -425,7 +434,7 @@ select is(
   'and a SOFT-DELETED Station answers the same: c.deleted_at is the third column of the join, and until this case nothing here tested it');
 
 -- ---------------------------------------------------------------------------
--- 16-17. D4, the last door of item 1b. A number nobody knows: the listener the
+-- D4, THE LAST DOOR OF ITEM 1b. A number nobody knows: the listener the
 --     bot registers carries the CANONICAL international form, the same shape
 --     0263 gave the console, the spreadsheet, the widget and the API. Before
 --     this migration this row would have read 11930000009.
@@ -444,7 +453,7 @@ select is(
   'and the bot stores the CANONICAL form, not whatsapp_local_phone''s answer');
 
 -- ---------------------------------------------------------------------------
--- 18-19. And the second search that must survive it. 30fd is stored in the
+-- THE SECOND SEARCH THAT MUST SURVIVE IT. 30fd is stored in the
 --        local form, which is what this door wrote until 0267; the canonical
 --        search misses it and the local one finds it. Deleting that fallback
 --        would register this listener a second time -- the split item 1b
@@ -468,8 +477,8 @@ select is(
 --
 -- Registered HERE, after the session-message assertions above and before the
 -- template one below, so both halves of D9's rule are exercised by the same
--- door on the same promotion -- the only difference between assertion 3 and
--- assertion 21 is that these rows exist.
+-- door on the same promotion -- the only difference between the session-message
+-- case above and the template case below is that these rows exist.
 --
 -- The one at Station B uses TWO placeholders for a purpose whose sentence has
 -- ONE variable. That is a thing an operator can type on the Templates screen,
@@ -497,7 +506,7 @@ values
    'Confirmado: {{1}} para {{2}}.', 'WHATSAPP', 'Confirmada com contrato errado');
 
 -- ---------------------------------------------------------------------------
--- 20-22. D9, second half: a live registration whose body wants exactly the
+-- D9, SECOND HALF: a live registration whose body wants exactly the
 --        variable this sentence has, so the reply goes as the template, and
 --        `body` is what the APPROVED text rendered to rather than the sentence
 --        the session message would have carried.
@@ -529,7 +538,7 @@ select is(
   'a promotion that asks nothing of anybody enters a known listener at once');
 
 -- ---------------------------------------------------------------------------
--- 24-29. The envelope directly, over the shapes a door cannot easily produce.
+-- THE ENVELOPE DIRECTLY, over the shapes a door cannot easily produce.
 --        These are the four purpose contracts the Templates screen states, and
 --        every way a template can be missing.
 -- ---------------------------------------------------------------------------
@@ -584,7 +593,7 @@ select is(
   'a registration whose body wants two variables for a one-variable sentence is NOT chosen: enqueue_whatsapp_outbound would raise 22023 and roll back an entry already written');
 
 -- ---------------------------------------------------------------------------
--- 30. The wrapper. Its callers want the words, and it passes a null company
+-- THE WRAPPER. Its callers want the words, and it passes a null company
 --     precisely so it can never be handed a template -- with all four
 --     registrations above in place, it still answers the sentence.
 -- ---------------------------------------------------------------------------
@@ -595,8 +604,8 @@ select is(
   'whatsapp_reply_body still answers the sentence, and never a template, however many are registered');
 
 -- ---------------------------------------------------------------------------
--- 32-35. THE TIMEZONE GUARD, which shipped in fix round 2 with nothing able to
---        break it. This is that case.
+-- THE TIMEZONE GUARD, which shipped in fix round 2 with nothing able to break
+-- it. This is that case.
 --
 --        Station F's timezone is 'Nowhere/Nowhere'. The listener already has a
 --        VALID entry minutes old on a promotion with a six-hour interval, so
@@ -614,9 +623,9 @@ select is(
 --
 --        A PARTICIPATION_TOO_SOON TEMPLATE IS REGISTERED AT THIS STATION on
 --        purpose: the degraded sentence carries no time, so it carries no
---        variable list, so assertion 35 shows it going out as a session message
---        even though a registration exists. The two halves of D9's rule meeting
---        in one reply.
+--        variable list, so the last case here shows it going out as a session
+--        message even though a registration exists. The two halves of D9's rule
+--        meeting in one reply.
 -- ---------------------------------------------------------------------------
 insert into public.message_templates
   (organization_id, company_id, purpose, name, language, body, channel, internal_name)
