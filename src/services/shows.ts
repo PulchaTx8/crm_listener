@@ -329,6 +329,47 @@ export async function listShowOptions(companyId: string): Promise<ShowOption[]> 
   return data ?? [];
 }
 
+export interface PromotionSchedule {
+  showId: string;
+  showName: string;
+  rows: ScheduleRow[];
+}
+
+/**
+ * Block 30e, item 18. The schedule of the Programme a promotion belongs to.
+ *
+ * Through `promotion_show_schedule` (0269) rather than through the tables,
+ * because this read serves the Participations screen and its caller need not
+ * hold `music.view` — see that migration's header. `null` means the promotion has
+ * no Programme, which is the ordinary case and not a failure; a refusal arrives
+ * as `42501` and `mapShowError` turns it into an UnauthorizedError the page can
+ * tell apart from "no Programme".
+ */
+export async function getPromotionShowSchedule(
+  promotionId: string,
+): Promise<PromotionSchedule | null> {
+  const supabase = await createUserClient();
+  const { data, error } = await supabase.rpc('promotion_show_schedule', {
+    p_promotion_id: promotionId,
+  });
+  if (error) throw mapShowError(error.code, error.message);
+
+  const rows = data ?? [];
+  const first = rows[0];
+  if (!first) return null;
+
+  return {
+    showId: first.show_id,
+    showName: first.show_name,
+    rows: rows.map((row) => ({
+      band: row.band,
+      weekday: row.weekday,
+      starts_at: row.starts_at,
+      ends_at: row.ends_at,
+    })),
+  };
+}
+
 /** One programme by id. RLS already scopes this, so an unreachable one comes back null. */
 export async function getShowById(showId: string): Promise<ShowSummary | null> {
   const supabase = await createUserClient();
