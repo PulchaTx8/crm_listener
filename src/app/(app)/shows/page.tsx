@@ -136,6 +136,10 @@ export default async function ShowsPage({
 
     const permissions = await getMusicPermissions(supabase, selected.id);
     const inThisWeek = stationToday >= weekStart && stationToday <= weekEnd;
+    // `% 24` because some engines render midnight as hour 24 under
+    // `hour12: false` — the quirk `zoneOffsetMs` (promotions/zone.ts) already
+    // guards against. Left alone it would put the now-line at the FOOT of the
+    // day it has just left rather than at the head of the one it is in.
     const [hours = '0', minutes = '0'] = stationClock.split(':');
 
     return (
@@ -155,7 +159,7 @@ export default async function ShowsPage({
           state={drawn}
           manage={permissions.manage}
           capped={week.capped}
-          nowMinutes={inThisWeek ? Number(hours) * 60 + Number(minutes) : null}
+          nowMinutes={inThisWeek ? (Number(hours) % 24) * 60 + Number(minutes) : null}
           todayDate={inThisWeek ? stationToday : null}
           initialRecord={parseRecordParam(params as Record<string, string | undefined>, SHOW_TABS)}
         />

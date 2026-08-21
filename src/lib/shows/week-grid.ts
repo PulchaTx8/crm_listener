@@ -112,9 +112,12 @@ export function layOutWeek(shows: GridShow[], days: WeekDay[]): GridBlock[] {
       for (const row of show.schedules) {
         if (row.weekday !== day.weekday) continue;
 
-        // A marker always reconstructs to a band; the fallback below exists so a
-        // row this module cannot explain is still DRAWN with its own hours rather
-        // than silently dropped off the week.
+        // Not every marker reconstructs to a band: `bandsByMarker` skips one whose
+        // rows are ALL tails (a 00:00 row with no head before it), which is a
+        // schedule `save_show` does not write and a hand-edited table could. The
+        // fallback below draws such a row with its own hours rather than dropping
+        // it silently off the week — a missing programme reads as a schedule, and
+        // a mislabelled one reads as a mistake.
         const band = bands.get(row.band);
 
         const start = minutesOfClock(row.starts_at);
