@@ -80,10 +80,15 @@ function purposeDetails(
     // give on the WhatsApp fast path (0267 is what calls it) -- confirmed,
     // already entered, entered too recently, no chances left -- because the
     // four sentences carry different variables and a single template whose
-    // body is nearly all placeholder is the shape Meta rejects. All four are
-    // Utility category, unlike WEB_VERIFICATION's Authentication above: the
-    // listener already opened the 24-hour window by texting the hashtag, so
-    // none of them carries an OTP button.
+    // body is nearly all placeholder is the shape Meta rejects. D9 rules all
+    // four Utility category, unlike WEB_VERIFICATION's Authentication above --
+    // the OTP button 0165 added is Meta's requirement for AUTHENTICATION
+    // templates specifically (otpButtonHelp, below), not a consequence of
+    // anything about this fast path, so a Utility registration ordinarily has
+    // none to transcribe. Separately, and for a different reason: the listener
+    // already opened the 24-hour window by texting the hashtag, which is what
+    // makes D9's session-message fallback legitimate on the occasions none of
+    // these four is registered.
     PARTICIPATION_CONFIRMED: {
       title: t('participationConfirmed'),
       when: t('purposeParticipationConfirmedWhen'),
@@ -146,7 +151,7 @@ export function TemplateRegistry({
         <li key={purpose}>
           <PurposeCard
             purpose={purpose}
-            // `find` rather than a map built once: TEMPLATE_PURPOSES has two
+            // `find` rather than a map built once: TEMPLATE_PURPOSES has six
             // entries today and the registry one live row per purpose, so this
             // is a scan of at most a handful either way.
             existing={templates.find((t) => t.purpose === purpose) ?? null}
