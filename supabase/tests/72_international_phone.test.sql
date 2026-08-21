@@ -86,10 +86,15 @@ select is(
   (select phone from public.members where id = '00000000-0000-0000-0000-000000000723'),
   '+5511999998888', 'the repair rewrites the local form to the international one');
 
--- phone_normalized is GENERATED from phone (0031) and is what
--- members_phone_unique actually dedupes on -- asserted on its own because a
--- repair that wrote the right display form but left this column stale would
--- still misfile the listener, and the assertion above would not catch it.
+-- phone_normalized is GENERATED from phone (0031: generated always as
+-- normalize_phone(phone) stored) -- Postgres recomputes it atomically on
+-- every write and refuses a direct one, so this assertion cannot fail
+-- independently of the phone assertion above; it is not a guard against a
+-- stale column. Asserted anyway because phone and phone_normalized are the
+-- two halves that must agree: phone is the form a person reads, and
+-- phone_normalized is what members_phone_unique (0031) actually dedupes on
+-- and so decides identity. This pins the exact digit string the repair
+-- produces rather than leaving it implicit.
 select is(
   (select phone_normalized from public.members where id = '00000000-0000-0000-0000-000000000723'),
   '5511999998888', 'phone_normalized regenerates from the repaired phone, plus stripped');
@@ -105,9 +110,14 @@ select is(
 -- warns about) would still write back the SAME value, and a check on phone
 -- alone would not see the difference. What changes is whether the row was
 -- matched at all: the correct predicate excludes it, so the second UPDATE
--- touches zero rows. xmin was tried first and rejected for this same reason
--- 12b_deadline_sweep.test.sql gives it up for -- it does not reliably tell
--- "untouched" apart from "touched with the same value" either.
+-- touches zero rows. xmin was tried first and rejected: this whole file runs
+-- inside one transaction that never commits (begin; ... rollback;), so every
+-- row version any statement here writes carries that same transaction's
+-- xmin no matter how many times the row is rewritten -- a before/after
+-- comparison would read "unchanged" whether the second UPDATE touched the
+-- row or not. Not the same mechanism 12b_deadline_sweep.test.sql documents:
+-- that file's xmin drift comes from per-iteration savepoints inside a loop's
+-- begin...exception...end, which this block has none of.
 do $$
 declare
   v_row_count integer;
