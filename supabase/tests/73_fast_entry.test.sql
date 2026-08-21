@@ -1,5 +1,5 @@
 begin;
-select plan(25);
+select plan(26);
 
 -- Block 30d, item 14 (D8, D9) and the last door of item 1b (D4).
 --
@@ -79,7 +79,15 @@ values
   ('00000000-0000-0000-0000-0000000030f8', '00000000-0000-0000-0000-0000000030f0',
    '00000000-0000-0000-0000-0000000030f9', 'Promo Sem Widget',
    now() - interval '1 day', now() + interval '30 days',
-   true, '#SEMWIDGET', 'Regulamento da Promo Sem Widget.', '{}');
+   true, '#SEMWIDGET', 'Regulamento da Promo Sem Widget.', '{}'),
+  -- The same Station, still no installation, but this one ASKS for something.
+  -- It is the control for assertion 9: what needs the widget still meets the
+  -- gate, so a green 9 cannot be an accidentally deleted gate.
+  ('00000000-0000-0000-0000-0000000030f7', '00000000-0000-0000-0000-0000000030f0',
+   '00000000-0000-0000-0000-0000000030f9', 'Promo Sem Widget Que Pergunta',
+   now() - interval '1 day', now() + interval '30 days',
+   true, '#PEDEDADOS', 'Regulamento da Promo Sem Widget Que Pergunta.',
+   '{full_name}');
 
 -- The two numbers, set in an UPDATE rather than in the INSERT above only so
 -- this comment sits beside them: promotions_repetition_shape and
@@ -224,26 +232,43 @@ select alike(
   'and the pre-check''s reply reaches outbox_messages through the envelope too');
 
 -- ---------------------------------------------------------------------------
--- 9-10. PLACEMENT. Station B has an integration and a ruled, live promotion
---       and no widget installation. The fast path sits after that gate, so the
---       event finishes under its own name and nobody is entered -- which is
---       what "after the no_installation gate" means and the only way to tell
---       it from a fast path placed before it.
+-- 9-11. PLACEMENT, and it is the whole of what fix round 1 changed. Station B
+--       has an integration and a ruled, live promotion and NO widget
+--       installation -- the state EVERY Station starts in, since switching the
+--       widget on is a separate console act (0159).
+--
+--       The fast path sits ABOVE the no_installation gate, so this listener is
+--       entered and answered: that gate exists because a LINK cannot be minted
+--       without an installation, and this path mints none. With the gate above
+--       the fast path instead -- the order this migration first shipped --
+--       assertion 9 comes back `no_installation` and 10 counts zero, which is
+--       the fast path dead on arrival at every freshly provisioned Station.
+--
+--       Assertion 11 is the other half: what still NEEDS the link still meets
+--       the gate. Same Station, same missing installation, a promotion asking
+--       for a field this listener has not got.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.ingest('00000000-0000-0000-0000-0000000030e5', 'wamid.FAST-5',
                  '5511930000005', '#SEMWIDGET', '303030303030302') ->> 'outcome',
-  'no_installation',
-  'a Station with no live installation still finishes under its own name');
+  'recorded',
+  'a Station with NO widget installation still enters a listener who has nothing left to answer: the fast path sends no link and needs no widget');
 
 select is(
   (select count(*) from public.participations
-    where promotion_id = '00000000-0000-0000-0000-0000000030f8'),
-  0::bigint,
-  'and the fast path, which needs no link, still did not enter anybody there');
+    where promotion_id = '00000000-0000-0000-0000-0000000030f8'
+      and status = 'VALID'),
+  1::bigint,
+  'and the entry is really there, written at a Station whose widget nobody has switched on');
+
+select is(
+  pg_temp.ingest('00000000-0000-0000-0000-0000000030ea', 'wamid.FAST-10',
+                 '5511930000002', '#PEDEDADOS', '303030303030302') ->> 'outcome',
+  'no_installation',
+  'but a listener with a field still to fill needs the widget, and without an installation that Station still finishes under its own name');
 
 -- ---------------------------------------------------------------------------
--- 11-12. D4, the last door of item 1b. A number nobody knows: the listener the
+-- 12-13. D4, the last door of item 1b. A number nobody knows: the listener the
 --     bot registers carries the CANONICAL international form, the same shape
 --     0263 gave the console, the spreadsheet, the widget and the API. Before
 --     this migration this row would have read 11930000009.
@@ -262,7 +287,7 @@ select is(
   'and the bot stores the CANONICAL form, not whatsapp_local_phone''s answer');
 
 -- ---------------------------------------------------------------------------
--- 13-14. And the second search that must survive it. 30fd is stored in the
+-- 14-15. And the second search that must survive it. 30fd is stored in the
 --        local form, which is what this door wrote until 0267; the canonical
 --        search misses it and the local one finds it. Deleting that fallback
 --        would register this listener a second time -- the split item 1b
@@ -287,12 +312,12 @@ select is(
 -- Registered HERE, after the session-message assertions above and before the
 -- template one below, so both halves of D9's rule are exercised by the same
 -- door on the same promotion -- the only difference between assertion 3 and
--- assertion 16 is that these rows exist.
+-- assertion 17 is that these rows exist.
 --
 -- The one at Station B uses TWO placeholders for a purpose whose sentence has
 -- ONE variable. That is a thing an operator can type on the Templates screen,
 -- and enqueue_whatsapp_outbound refuses it with 22023 (0111) -- which on the
--- fast path would roll back an entry already written. Assertion 24 pins that
+-- fast path would roll back an entry already written. Assertion 25 pins that
 -- the envelope declines to choose it.
 -- ---------------------------------------------------------------------------
 insert into public.message_templates
@@ -315,7 +340,7 @@ values
    'Confirmado: {{1}} para {{2}}.', 'WHATSAPP', 'Confirmada com contrato errado');
 
 -- ---------------------------------------------------------------------------
--- 15-17. D9, second half: a live registration whose body wants exactly the
+-- 16-18. D9, second half: a live registration whose body wants exactly the
 --        variable this sentence has, so the reply goes as the template, and
 --        `body` is what the APPROVED text rendered to rather than the sentence
 --        the session message would have carried.
@@ -347,7 +372,7 @@ select is(
   'a promotion that asks nothing of anybody enters a known listener at once');
 
 -- ---------------------------------------------------------------------------
--- 19-24. The envelope directly, over the shapes a door cannot easily produce.
+-- 20-25. The envelope directly, over the shapes a door cannot easily produce.
 --        These are the four purpose contracts the Templates screen states, and
 --        every way a template can be missing.
 -- ---------------------------------------------------------------------------
@@ -402,7 +427,7 @@ select is(
   'a registration whose body wants two variables for a one-variable sentence is NOT chosen: enqueue_whatsapp_outbound would raise 22023 and roll back an entry already written');
 
 -- ---------------------------------------------------------------------------
--- 25. The wrapper. Its callers want the words, and it passes a null company
+-- 26. The wrapper. Its callers want the words, and it passes a null company
 --     precisely so it can never be handed a template -- with all four
 --     registrations above in place, it still answers the sentence.
 -- ---------------------------------------------------------------------------

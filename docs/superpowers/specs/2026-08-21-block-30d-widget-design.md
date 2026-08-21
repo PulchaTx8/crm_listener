@@ -46,7 +46,7 @@ Four things a listener meets, none of which is an operator screen:
 | 1a | widget, promotion panel | the question's text reaches the browser and is drawn above the alternatives |
 | 1b | every door that writes a phone | one canonical form — international — through one shared function |
 | 2 | `/messages/promo`, widget | the Station carries the listener's language; the widget stops asking the cookie |
-| 14 | `ingest_link_intent`, widget promotion panel | nothing left to ask means the entry is taken now, not after a link or a walk |
+| 14 | `ingest_whatsapp_event`, widget promotion panel | nothing left to ask means the entry is taken now, not after a link or a walk |
 
 ---
 
@@ -214,12 +214,34 @@ is what produced it, and the plan re-runs that grep rather than trusting this
 paragraph: a door added between this spec and its implementation would otherwise
 be the one that keeps writing the raw value.
 
-**The WhatsApp path loses a step.** `ingest_link_intent` (0179) and
-`start_conversation` (0070) currently convert Meta's delivered `5511…` to the
-local form before resolving the listener. They stop: the delivered value already
-*is* canonical. `whatsapp_local_phone` stays defined — the conversation store is
-keyed by the delivered form and 19a's Critical lives there — but nothing on the
-member path calls it any more.
+**The WhatsApp path loses a step, and it is ONE function rather than the two
+this paragraph first named.** Corrected in Task 8's fix round after being
+checked against `pg_proc` instead of against the migration file list:
+
+- **`ingest_link_intent` is not a function.** `0179_ingest_link_intent.sql` is a
+  FILE name, and that migration defines exactly one function,
+  `ingest_whatsapp_event`. Four comments 0263 wrote repeat the mistake and 0267
+  corrects them where they sit.
+- **`start_conversation` is not a function either.** The live one is
+  `start_whatsapp_conversation` (0070), and it never converted a phone: it takes
+  `p_phone` from its caller and passes it through. It was never part of this.
+
+So **`ingest_whatsapp_event` was the ONLY door still writing the local form**,
+and `0267` (Task 8) wires it to `international_phone`. **Item 1b closes with
+that task**, not with 0263.
+
+The delivered value is also not *already* canonical, though it is close enough
+to look it: Meta delivers `5511988887777` and `international_phone` answers
+`+5511988887777`, because the plus is part of the shape `members.phone` carries.
+`phone_normalized` drops it again, so identity does not move — only the stored
+spelling does.
+
+`whatsapp_local_phone` stays defined, and 0267 keeps CALLING it: the door
+searches the canonical form first and that function's answer second, which is
+what still finds a listener the bot itself registered before 0267. The
+conversation store is keyed on the delivered form (`v_from`) and 19a's Critical
+lives there, but that key is `v_from` itself and has never involved this
+function.
 
 ### D5 — The country goes on the Station, and the eight rows are repaired
 
@@ -322,6 +344,31 @@ require is not optional because the channel is convenient.
 **The door recomputes; it never trusts the client.** That is 0171's rule and this
 block does not weaken it.
 
+**Where the branch sits, corrected in Task 8's fix round.** The task brief put
+the fast path below both of `ingest_whatsapp_event`'s gates. The owner reversed
+that on 2026-08-21, and the order is now **`no_rules`, then the fast path, then
+`no_installation`**:
+
+- **`no_rules` gates both ways of saying yes.** Rules are the consent the
+  listener never clicks, and past that line there is no later door to catch a
+  promotion nobody has written rules for. A promotion with no rules text still
+  sends nothing.
+- **`no_installation` guards only the LINK.** It exists because
+  `widget_link_send_context` cannot mint one without an installation, and *the
+  fast path mints none* — item 14 asks in as many words for the hashtag to
+  register the listener "without sending a Widget link". Nothing the fast path
+  calls reads `widget_installations` (checked against `pg_proc.prosrc`); the
+  reply needs only the WhatsApp integration the door has already resolved.
+  Gating it behind a widget would have killed it at every freshly provisioned
+  Station, since **every** Station starts with no installation — creating one is
+  a separate console act (0159), which `0179`'s own gate comment already says.
+
+One observable consequence, recorded rather than discovered later: a Station
+with **no installation and no rules text** now answers `no_rules` where it
+answered `no_installation` before. Both are silent to the listener; the one
+naming the promotion's own missing text is the more useful diagnostic, because
+it is the half that Station can fix without a console act.
+
 ### D9 — Four Utility templates, and one rule that covers both ways they can be missing
 
 The owner's ruling: every reply on the WhatsApp fast path goes out as a template
@@ -387,7 +434,7 @@ Supabase runs each migration in its own transaction and a value added by
 | 0264 | `question_prompt_step.sql` | `whatsapp_conversation_steps` carries `prompt` (D1) |
 | 0265 | `listener_locale.sql` | the column, its door, and `widget_frame_context` returning it (D6, D7) |
 | 0266 | `template_purpose_participation.sql` | four enum values — **and nothing else** |
-| 0267 | `whatsapp_fast_entry.sql` | `ingest_link_intent` takes the entry when nothing is left to ask (D8, D9) |
+| 0267 | `whatsapp_fast_entry.sql` | `ingest_whatsapp_event` takes the entry when nothing is left to ask (D8, D9) — and writes the canonical phone, closing D4 |
 | 0268 | `widget_fast_entry.sql` | `enter_promotion`'s fast path and the consent row (D8, D10) |
 
 **Every redefinition copies the LIVE definition forward.** Every function this
@@ -458,9 +505,19 @@ Block 24.
 ## 8. Debt this records
 
 - **`<html lang>` still follows the cookie** in the widget (D7).
-- **`whatsapp_local_phone` survives** with one caller left — the conversation
-  store's key. It is Brazil-only by its own comment, and the day a second country
-  runs a bot it will need the same treatment this block gave the member path.
+- **`whatsapp_local_phone` survives**, and this note first described its callers
+  wrongly. It has **four**, all of them the SECOND search a door makes after the
+  canonical one misses: `resolve_or_create_member`, `widget_verify_code`,
+  `api_record_music_request` and `withdraw_marketing_by_phone` (measured with
+  `select proname from pg_proc where prosrc like '%whatsapp_local_phone%'`, which
+  returns those four and `ingest_whatsapp_event`, whose own second search is the
+  fifth). It is **not** the conversation store's key: that store is keyed on
+  `v_from`, the phone exactly as Meta delivered it, and this function is not
+  involved in it. Those searches reach the listeners the bot registered in the
+  local form **before 0267**; what retires them is a sweep that leaves no
+  local-form row behind, not a door that stopped writing new ones. It is
+  Brazil-only by its own comment, and the day a second country runs a bot it will
+  need the same treatment this block gave the member path.
 - **The listeners the split already created are not merged** (§2). The eight rows
   repaired by 0262 are the ones that carry the minority form; a pair that is
   already two rows stays two rows.

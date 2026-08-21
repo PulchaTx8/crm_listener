@@ -37,10 +37,23 @@
 -- whose approved body uses a different number of placeholders than the purpose
 -- was described with is a thing an operator can type on the Templates screen.
 -- enqueue_whatsapp_outbound refuses both with 22023 (0111's variable-count
--- check, still the authority at send time) -- but on the fast path below the
--- entry is ALREADY WRITTEN when the reply is chosen, and a raise there would
--- roll it back. So this function predicts that refusal and answers a session
--- message instead of provoking it. Registration never depends on the reply.
+-- check, still the authority at send time).
+--
+-- PRE-VALIDATING HERE IS WHAT MAKES D9'S GUARANTEE TRUE, and that is this
+-- function's reason for reading the registration's body at all. D9 says
+-- "registration never depends on the reply". Without the check below that
+-- sentence is FALSE, not merely unproven: on the fast path the participation
+-- is already written when the reply is chosen, the raise happens inside the
+-- same transaction, and the entry is rolled back -- so a template body an
+-- operator typed with the wrong number of placeholders would destroy the very
+-- entry it was meant to confirm, and the listener would be left with neither.
+-- Measured, not argued: forcing the template branch with no registration makes
+-- the door answer P0002 and the participation count drop to zero
+-- (task-8-report.md, the second mutation).
+--
+-- So this function predicts the refusal and answers a session message instead
+-- of provoking it. The listener gets the words either way; what cannot happen
+-- is losing the entry over the envelope.
 --
 -- THE SESSION MESSAGE IS LEGITIMATE HERE AND ONLY HERE: the listener sent the
 -- hashtag seconds earlier, so Meta's 24-hour window is open by their own act.
@@ -189,7 +202,7 @@ $$;
 revoke execute on function public.whatsapp_reply_envelope(uuid, uuid, text, uuid) from public;
 
 comment on function public.whatsapp_reply_envelope(uuid, uuid, text, uuid) is
-  'Block 30d, D9. One reply, and the two questions about it answered together: WHICH SENTENCE a listener gets for a participation status, and WHICH ENVELOPE it travels in. Answers {body, purpose, variables} -- purpose null meaning "send this as a session message", and variables then empty, because a caller passing a purpose must pass the list that goes with it. The six sentences over apply_participation''s four statuses are the ones 0062 wrote and they live HERE now; whatsapp_reply_body is a wrapper over this function, so the next-chance clock and the ceiling are computed once rather than in two places that can drift. THE TEMPLATE IS CHOSEN ONLY WHEN IT CAN ACTUALLY BE SENT: a live WhatsApp registration for the purpose at that Station whose approved body wants exactly the variables computed here. Two sentences carry no variable list at all -- a TOO_SOON with no computable next chance, an OVER_LIMIT on a promotion with no ceiling -- and a registration can be typed with a different number of placeholders than the purpose was described with; enqueue_whatsapp_outbound (0111) refuses both with 22023, and on the fast path ingest_whatsapp_event (0267) takes the entry BEFORE it chooses the envelope, so a raise there would roll back an entry that was already decided. Predicting the refusal is what keeps registration independent of the reply. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from inside SECURITY DEFINER bodies that have already resolved their own Station.';
+  'Block 30d, D9. One reply, and the two questions about it answered together: WHICH SENTENCE a listener gets for a participation status, and WHICH ENVELOPE it travels in. Answers {body, purpose, variables} -- purpose null meaning "send this as a session message", and variables then empty, because a caller passing a purpose must pass the list that goes with it. The six sentences over apply_participation''s four statuses are the ones 0062 wrote and they live HERE now; whatsapp_reply_body is a wrapper over this function, so the next-chance clock and the ceiling are computed once rather than in two places that can drift. THE TEMPLATE IS CHOSEN ONLY WHEN IT CAN ACTUALLY BE SENT: a live WhatsApp registration for the purpose at that Station whose approved body wants exactly the variables computed here. Two sentences carry no variable list at all -- a TOO_SOON with no computable next chance, an OVER_LIMIT on a promotion with no ceiling -- and a registration can be typed with a different number of placeholders than the purpose was described with; enqueue_whatsapp_outbound (0111) refuses both with 22023. PRE-VALIDATING THAT HERE IS WHAT MAKES D9''S GUARANTEE ("registration never depends on the reply") TRUE RATHER THAN MERELY INTENDED: ingest_whatsapp_event (0267) takes the entry BEFORE it chooses the envelope, so the raise lands in the same transaction and rolls back the participation the reply existed to confirm -- proved by mutation, P0002 and a participation count of zero. Choosing an envelope may never destroy an entry. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from inside SECURITY DEFINER bodies that have already resolved their own Station.';
 
 -- ---------------------------------------------------------------------------
 -- 2. whatsapp_reply_body, now a wrapper.
@@ -588,29 +601,23 @@ begin
   -- from taking one.) Guarded on v_promo.id, not v_purpose, for the same
   -- reason the pre-check above needs no guard of its own: a MUSIC or MENU
   -- match never populates v_promo, so this never fires for either.
-  -- Final review, Important #1. A promotion's hashtag can match with no live
-  -- installation to answer through -- unlike MUSIC and MENU, whose match is
-  -- structurally impossible without one, because the elsif chain above tests
-  -- v_install's own columns. Every Station starts in exactly this state:
-  -- creating a widget installation is a separate console act (0159), so a
-  -- Station with a WhatsApp integration and a hashtagged, ruled promotion but
-  -- no installation yet is the ORDINARY case, not an exotic one. Without this
-  -- gate v_purpose stayed 'PROMOTION' regardless, the function reached the
-  -- 'link' outcome below, widget_link_send_context raised P0002, sendServiceLink
-  -- rethrew, and the event burned all six retry rungs and parked FAILED --
-  -- for a configuration that used to open a conversation and answer fine.
   --
-  -- GATED HERE, BESIDE no_rules, and not folded into the diagnostic branch
-  -- above: v_diag there would find the very promotion v_promo already found
-  -- (same filters, minus the window) and misreport outside_window for a
-  -- promotion that is, in fact, live right now -- the wrong cause for the
-  -- right symptom. no_installation is its own named outcome so the two are
-  -- never confused reading webhook_events, the same reasoning no_rules
-  -- already states for itself two lines below.
-  if v_promo.id is not null and v_install.id is null then
-    return public.finish_whatsapp_event(v_event.id, 'no_installation', null, null);
-  end if;
-
+  -- AND NOW AHEAD OF BOTH WAYS THIS FUNCTION CAN SAY YES (Block 30d, fix
+  -- round 1). This gate used to sit BELOW no_installation, back when a link
+  -- was the only yes there was. The fast path below enters a listener with no
+  -- screen and no click at all, which makes rules matter MORE there and not
+  -- less: they are the consent that listener never clicks, and past this line
+  -- there is no later door to catch a promotion whose rules nobody has
+  -- written. A promotion with no rules text still sends nothing, whichever of
+  -- the two ways below would otherwise have followed.
+  --
+  -- THE REORDERING CHANGES ONE OBSERVABLE THING and it is worth naming: a
+  -- Station with no installation AND a promotion with no rules text now
+  -- answers no_rules where it used to answer no_installation. Both are silent
+  -- to the listener and both exist for the operator asking "why didn't it
+  -- work?"; the one naming the promotion's own missing text is the better
+  -- answer of the two, because it is the half that Station can fix without a
+  -- separate console act.
   if v_promo.id is not null and (v_promo.rules is null or btrim(v_promo.rules) = '') then
     return public.finish_whatsapp_event(v_event.id, 'no_rules', null, null);
   end if;
@@ -636,13 +643,38 @@ begin
   -- from complete_conversation (0071), which records none", and this door
   -- records none either.
   --
-  -- PLACED AFTER BOTH GATES ABOVE, deliberately. A Station with no live
-  -- installation still finishes as no_installation and a promotion with no
-  -- rules text still finishes as no_rules, both silently and both under their
-  -- own name, exactly as they did before this branch existed: rules are the
-  -- consent the web screen shows, and entering somebody into a promotion whose
-  -- rules nobody has written would take an agreement to a text that does not
-  -- exist.
+  -- PLACED ABOVE THE no_installation GATE AND BELOW no_rules, and both halves
+  -- of that are deliberate. The first cut of this migration sat below both,
+  -- and the owner reversed it in fix round 1.
+  --
+  -- ABOVE no_installation, BECAUSE THAT GATE EXISTS FOR THE LINK AND THIS PATH
+  -- MINTS NONE. What raises P0002 without an installation is
+  -- widget_link_send_context, and nothing below this line calls it: the four
+  -- functions this branch reaches -- apply_participation,
+  -- whatsapp_conversation_steps, whatsapp_reply_envelope and
+  -- enqueue_whatsapp_outbound -- read promotions, companies,
+  -- message_templates, participations, member_company_links and integrations,
+  -- and not one of them reads widget_installations. Checked against
+  -- pg_proc.prosrc rather than assumed. The reply needs only the WhatsApp
+  -- integration this function resolved at the top.
+  --
+  -- Gating a path that needs no widget behind a widget's existence would have
+  -- been an arbitrary coupling, and it would have bitten hardest exactly where
+  -- it must not: the gate's own comment below records that EVERY Station
+  -- starts with no installation, because creating one is a separate console
+  -- act (0159). The fast path would have been dead on arrival at every freshly
+  -- provisioned Station -- which is the owner's item 14 read backwards, since
+  -- that item asks for the configured hashtag to register the listener
+  -- immediately, WITHOUT sending a widget link.
+  --
+  -- BELOW no_rules, because rules are the consent this listener never clicks.
+  -- Entering somebody into a promotion whose rules nobody has written would
+  -- take an agreement to a text that does not exist, and this branch is the
+  -- one place in the codebase where an entry happens with no screen at all.
+  --
+  -- WHAT FALLS THROUGH still meets the installation gate unchanged: a listener
+  -- with something left to answer needs the widget, and the widget needs an
+  -- installation.
   if v_promo.id is not null
      and not exists (
        select 1
@@ -673,6 +705,36 @@ begin
     end if;
 
     return public.finish_whatsapp_event(v_event.id, 'recorded', v_status, v_part);
+  end if;
+
+  -- Final review, Important #1 (0179), AND NOW THE LAST GATE RATHER THAN THE
+  -- FIRST OF TWO. A promotion's hashtag can match with no live installation to
+  -- answer through -- unlike MUSIC and MENU, whose match is structurally
+  -- impossible without one, because the elsif chain above tests v_install's own
+  -- columns. Every Station starts in exactly this state: creating a widget
+  -- installation is a separate console act (0159), so a Station with a WhatsApp
+  -- integration and a hashtagged, ruled promotion but no installation yet is
+  -- the ORDINARY case, not an exotic one. Without this gate v_purpose stayed
+  -- 'PROMOTION' regardless, the function reached the 'link' outcome below,
+  -- widget_link_send_context raised P0002, sendServiceLink rethrew, and the
+  -- event burned all six retry rungs and parked FAILED -- for a configuration
+  -- that used to open a conversation and answer fine.
+  --
+  -- IT NOW GUARDS ONLY THE LINK, which is all it ever described. Everything it
+  -- protects is downstream of this line: minting a code and building a URL. A
+  -- listener with nothing left to answer was entered above and never arrives
+  -- here, so the ORDINARY case the paragraph above names -- a Station whose
+  -- widget nobody has switched on yet -- now answers that listener instead of
+  -- falling silent at them.
+  --
+  -- NOT FOLDED INTO THE DIAGNOSTIC BRANCH above: v_diag there would find the
+  -- very promotion v_promo already found (same filters, minus the window) and
+  -- misreport outside_window for a promotion that is, in fact, live right now
+  -- -- the wrong cause for the right symptom. no_installation is its own named
+  -- outcome so the two are never confused reading webhook_events, the same
+  -- reasoning no_rules states for itself above.
+  if v_promo.id is not null and v_install.id is null then
+    return public.finish_whatsapp_event(v_event.id, 'no_installation', null, null);
   end if;
 
   -- THE EVENT STAYS PROCESSING, and nothing is sent from here. What goes back
@@ -718,7 +780,7 @@ revoke execute on function public.ingest_whatsapp_event(uuid, integer) from publ
 grant execute on function public.ingest_whatsapp_event(uuid, integer) to service_role;
 
 comment on function public.ingest_whatsapp_event(uuid, integer) is
-  'The bot''s door, and since Block 19a it answers with a LINK rather than opening a conversation. It claims the event FOR UPDATE SKIP LOCKED, resolves the Station and the hashtag, and matches it in ONE order: the Station''s live, uncancelled promotions first (D3), then its music_hashtag, then its service_hashtag -- first match wins, because a promotion''s tag is the specific word and the Station''s two are the general ones. v_install is resolved through the SAME join companies/organizations that mint_widget_link and widget_link_send_context use (0164, 0181): a suspended Station or a blocked Organization answers as no installation at all, everywhere in this block, not just downstream of here. Past that point the listener is resolved or registered through the CANONICAL-THEN-LOCAL lookup pair 0267 put in place of 0070''s local-then-delivered one -- this door registers under international_phone''s answer now, like every other door that writes a telephone number (D4, item 1b), and searches whatsapp_local_phone''s answer second for the listeners it registered before that -- with 0070''s unique_violation race unchanged beside it, and THEN, before rules is ever consulted: an attempt that could not become a VALID entry is recorded and answered exactly as 5a did, because a repeat or a spent ceiling is a fact about a message this Station received (0054, 4c) and has nothing to do with whether a promotion has rules text yet -- checking rules ahead of this would answer somebody who has already used their chances with silence, and their attempt would never reach the reports an operator reads (fix round 1). Only once the listener is confirmed able to enter does a matched promotion with no live installation finish as no_installation (final review: every Station starts in exactly that state, since creating one is a separate console act, 0159) or, past that, with no rules text finish as no_rules -- both send nothing (D4): rules are the consent the web screen writes, and web_enabled is deliberately not tested, because sending the hashtag already is asking to take part. MUSIC and MENU need no equivalent of the no_installation gate: their match is structurally impossible without v_install''s own columns populated, so an absent, disabled or now-dark Station''s general hashtag falls straight to the diagnostic branch and finishes no_promotion, silently, exactly as a promotion hashtag with no live installation now also does under its own name. A matched promotion that leaves NOTHING TO ASK OF THIS LISTENER -- no field and no question in the step list, recomputed here and consent never counted -- is entered on the spot and answered {outcome: recorded} with the participation''s status, its reply enqueued through whatsapp_reply_envelope (0267, D8 and D9), which is also how the pre-check''s reply is enqueued now; the test is on the PAIR, so a newcomer at a promotion with no quiz still gets the link, fills the form once, and enters immediately ever after. Anything else hands back {outcome: link, purpose, promotion_id, member_id, ...} for the caller to mint a code and send, and NEVER {outcome: conversation} -- this function starts no conversation any more. TWO PATHS LEAVE THE EVENT PROCESSING -- that one, and a message with no hashtag, which may be an answer to a question the bot asked and can only be told apart by looking in the conversation store the caller owns. Both are finished by the caller, through finish_whatsapp_turn for the no-hashtag path and by whatever Task 5 closes the link path with. That keeps the INBOUND arm of reclaim_stale_whatsapp_claims load-bearing: a worker that dies mid-decision leaves a claimed row that only the reclaim frees, five minutes later.';
+  'The bot''s door, and since Block 19a it answers with a LINK rather than opening a conversation. It claims the event FOR UPDATE SKIP LOCKED, resolves the Station and the hashtag, and matches it in ONE order: the Station''s live, uncancelled promotions first (D3), then its music_hashtag, then its service_hashtag -- first match wins, because a promotion''s tag is the specific word and the Station''s two are the general ones. v_install is resolved through the SAME join companies/organizations that mint_widget_link and widget_link_send_context use (0164, 0181): a suspended Station or a blocked Organization answers as no installation at all, everywhere in this block, not just downstream of here. Past that point the listener is resolved or registered through the CANONICAL-THEN-LOCAL lookup pair 0267 put in place of 0070''s local-then-delivered one -- this door registers under international_phone''s answer now, like every other door that writes a telephone number (D4, item 1b), and searches whatsapp_local_phone''s answer second for the listeners it registered before that -- with 0070''s unique_violation race unchanged beside it, and THEN, before rules is ever consulted: an attempt that could not become a VALID entry is recorded and answered exactly as 5a did, because a repeat or a spent ceiling is a fact about a message this Station received (0054, 4c) and has nothing to do with whether a promotion has rules text yet -- checking rules ahead of this would answer somebody who has already used their chances with silence, and their attempt would never reach the reports an operator reads (fix round 1). Only once the listener is confirmed able to enter does a matched promotion with no rules text finish as no_rules -- silently (D4): rules are the consent the web screen writes, and web_enabled is deliberately not tested, because sending the hashtag already is asking to take part. THE GATE ORDER IS no_rules, THEN THE FAST PATH, THEN no_installation, and 0267''s fix round 1 put it that way round: rules gate BOTH ways of saying yes, because the fast path takes an entry with no screen and no click and there is no later door to catch a promotion nobody has written rules for, while no_installation guards only the LINK -- it exists because widget_link_send_context cannot mint one without an installation, and nothing on the fast path calls it (checked against pg_proc.prosrc: no function that path reaches reads widget_installations). Gating an entry that needs no widget behind a widget would have killed this path at every freshly provisioned Station, since every Station starts with no installation -- creating one is a separate console act (0159). One observable consequence: a Station with no installation AND no rules text now answers no_rules where it answered no_installation before. MUSIC and MENU need no equivalent of the no_installation gate: their match is structurally impossible without v_install''s own columns populated, so an absent, disabled or now-dark Station''s general hashtag falls straight to the diagnostic branch and finishes no_promotion, silently, exactly as a promotion hashtag with no live installation now also does under its own name. A matched promotion that leaves NOTHING TO ASK OF THIS LISTENER -- no field and no question in the step list, recomputed here and consent never counted -- is entered on the spot and answered {outcome: recorded} with the participation''s status, its reply enqueued through whatsapp_reply_envelope (0267, D8 and D9), which is also how the pre-check''s reply is enqueued now; the test is on the PAIR, so a newcomer at a promotion with no quiz still gets the link, fills the form once, and enters immediately ever after. Anything else hands back {outcome: link, purpose, promotion_id, member_id, ...} for the caller to mint a code and send, and NEVER {outcome: conversation} -- this function starts no conversation any more. TWO PATHS LEAVE THE EVENT PROCESSING -- that one, and a message with no hashtag, which may be an answer to a question the bot asked and can only be told apart by looking in the conversation store the caller owns. Both are finished by the caller, through finish_whatsapp_turn for the no-hashtag path and by whatever Task 5 closes the link path with. That keeps the INBOUND arm of reclaim_stale_whatsapp_claims load-bearing: a worker that dies mid-decision leaves a claimed row that only the reclaim frees, five minutes later.';
 
 -- ---------------------------------------------------------------------------
 -- 4. Three comments that this migration made false, in the doors 0263 wrote
