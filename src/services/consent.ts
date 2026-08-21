@@ -46,7 +46,7 @@ function mapConsentError(code: string | undefined, message: string): Error {
  *
  * THE ANON CLIENT, not a service-role client and not one bound to a user's
  * JWT: the visitor clicking "descadastrar" in an e-mail has no session and
- * never will, the same reasoning `installationExists`
+ * never will, the same reasoning `installationContext`
  * (services/widget-installations.ts) gives for its own anon door. 0232 grants
  * `consume_unsubscribe_token` to `anon` and `authenticated` alike for exactly
  * that reason -- a service-role client here would be privilege this call has

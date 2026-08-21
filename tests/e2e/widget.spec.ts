@@ -138,6 +138,14 @@ const MARKETING_CONSENT_VISITOR_LOCAL_PHONE = `71${String(stamp).slice(-9)}`;
 const MARKETING_CONSENT_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${MARKETING_CONSENT_VISITOR_LOCAL_PHONE}`;
 const MARKETING_CONSENT_VISITOR_NAME = 'Listener Who Ticks Once';
 
+/**
+ * Block 30d, Task 6. The listener whose browser disagrees with the Station —
+ * an eighth phone, same per-number reason as the seven before it.
+ */
+const LOCALE_VISITOR_LOCAL_PHONE = `81${String(stamp).slice(-9)}`;
+const LOCALE_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${LOCALE_VISITOR_LOCAL_PHONE}`;
+const LOCALE_VISITOR_NAME = 'Listener Whose Browser Disagrees With The Station';
+
 /** Names the outbox row this run's code arrives on, and nobody else's. */
 const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
 
@@ -364,7 +372,11 @@ async function identifyInFrame(
   // a number that looked right, and the country code was missing everywhere
   // downstream.
   await expect(widget.getByTestId('widget-phone-preview')).toContainText(phone);
-  await widget.getByRole('button', { name: 'Send code' }).click();
+  // PORTUGUESE: Block 30d/D7 makes the fixture Station's chosen
+  // `listener_locale` ('pt', seeded in `beforeAll`) win over this browser's
+  // pinned `en-US`, for every visitor to this installation -- this helper
+  // included.
+  await widget.getByRole('button', { name: 'Enviar código' }).click();
 
   // Either the second screen or a refusal — whichever arrives, so a refusal is
   // reported as itself rather than as a timeout waiting for the screen it
@@ -388,7 +400,7 @@ async function identifyInFrame(
   await expect(widget.locator('#widget-code')).toHaveValue('');
 
   await widget.locator('#widget-code').fill(code);
-  await widget.getByRole('button', { name: 'Confirm' }).click();
+  await widget.getByRole('button', { name: 'Confirmar' }).click();
 
   // THE MENU, INSIDE THE FRAME. Reaching it means the whole chain worked in a
   // third-party context: the action wrote the cookie, the browser STORED it (a
@@ -503,6 +515,20 @@ test.beforeAll(async ({}, testInfo) => {
     p_allowed_origins: [embedOrigin],
   });
   if (upsertError) throw new Error(`could not seed the installation: ${upsertError.message}`);
+
+  // Block 30d, Task 6, D7. THIS Station's own choice, seeded once here rather
+  // than only right before the test that needs it, because every test in this
+  // file shares this one installation -- the same reason `journeyCompanyId`
+  // below is set once. AS THE OWNER, same client the template registration
+  // above already signed in: set_listener_locale is gated on
+  // templates.manage, which a platform admin does not hold (Organization
+  // membership is what has_permission reads, and a platform admin is not a
+  // member of anything).
+  const { error: localeError } = await ownerClient.rpc('set_listener_locale', {
+    p_company_id: companyId,
+    p_locale: 'pt',
+  });
+  if (localeError) throw new Error(`could not seed the listener locale: ${localeError.message}`);
 
   // Block 17b reads the request back from this Station, and the cooldown stays
   // at its default of zero: this journey makes one request, and a ceiling it
@@ -764,14 +790,15 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   // count of two passed before this change as well, which is the shape of
   // assertion that proves nothing.
   //
-  // ENGLISH, because playwright.config.ts pins locale: 'en-US' for the whole
-  // suite and this visitor has no profile, cookie or Accept-Language to
-  // resolve anything else from. `exact: true` is load-bearing: without it
-  // "Back" matches "Back to the menu" by substring and the first assertion
-  // reports two.
-  await expect(widget.getByRole('button', { name: 'Back', exact: true })).toHaveCount(1);
+  // PORTUGUESE, not the 'en-US' playwright.config.ts pins for the whole
+  // suite: Block 30d/D7 makes this Station's chosen `listener_locale`
+  // ('pt', seeded in `beforeAll`) win over Accept-Language for every visitor
+  // to this installation, this one included. `exact: true` is load-bearing:
+  // without it "Voltar" matches "Voltar ao menu" by substring and the first
+  // assertion reports two.
+  await expect(widget.getByRole('button', { name: 'Voltar', exact: true })).toHaveCount(1);
   await expect(
-    widget.getByRole('button', { name: 'Back to the menu', exact: true }),
+    widget.getByRole('button', { name: 'Voltar ao menu', exact: true }),
   ).toHaveCount(1);
 
   await widget.getByTestId('widget-song-send').click();
@@ -806,7 +833,7 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   // own cookie would skip.
   // ---------------------------------------------------------------------------
   await widget.getByTestId('widget-promotion-panel').waitFor({ state: 'detached' }).catch(() => {});
-  await widget.getByRole('button', { name: 'Back' }).first().click();
+  await widget.getByRole('button', { name: 'Voltar' }).first().click();
   await expect(widget.getByTestId('widget-menu')).toBeVisible({ timeout: 30_000 });
 
   await widget.getByTestId('widget-enter-promotion').click();
@@ -1050,7 +1077,7 @@ test('a listener who skips a field is refused, and the panel jumps back to it', 
   await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
   await expect(widget.getByTestId('widget-promotion-error')).toBeVisible();
   await expect(widget.getByTestId('widget-promotion-error')).toContainText(
-    'Something is missing. Go back and check your answers.',
+    'Faltou alguma coisa. Volte e confira suas respostas.',
   );
 
   // AND STILL EMPTY -- the panel's own state surviving the round trip, not a
@@ -1101,7 +1128,7 @@ test("choosing a different promotion clears the previous one's agreement", async
   await widget.getByTestId('widget-promotion-consent').check();
   await expect(widget.getByTestId('widget-promotion-consent')).toBeChecked();
 
-  await widget.getByRole('button', { name: 'Other promotions' }).click();
+  await widget.getByRole('button', { name: 'Outras promoções' }).click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
 
   await widget
@@ -1173,7 +1200,7 @@ test('a refusal on one promotion does not linger onto a different one', async ({
   // THE REFUSAL, ON SCREEN -- about the promotion it is actually about.
   await expect(widget.getByTestId('widget-promotion-error')).toBeVisible({ timeout: 30_000 });
 
-  await widget.getByRole('button', { name: 'Other promotions' }).click();
+  await widget.getByRole('button', { name: 'Outras promoções' }).click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
 
   await widget
@@ -1272,7 +1299,7 @@ test('an entry is recorded only when "Enter now" is pressed, never by "Next"', a
 
   await widget.getByTestId('widget-promotion-options').getByRole('radio').first().check();
 
-  await widget.getByRole('button', { name: 'Back', exact: true }).click();
+  await widget.getByRole('button', { name: 'Voltar', exact: true }).click();
   await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
   // Both fields keep what was entered -- the walk is browser state until the
   // end (this file's own header) -- so going back and forward answers nothing
@@ -1407,7 +1434,7 @@ test('the marketing checkbox writes true when ticked, and a later unticked entry
   // the question forever after; the widget suppresses the WRITE, not the
   // question. That gap is on the screen, not in this test, and the owner has
   // it as a product decision.
-  await widget.getByRole('button', { name: 'Back', exact: true }).click();
+  await widget.getByRole('button', { name: 'Voltar', exact: true }).click();
   await expect(widget.getByTestId('widget-menu')).toBeVisible({ timeout: 30_000 });
   await widget.getByTestId('widget-enter-promotion').click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
@@ -1430,6 +1457,42 @@ test('the marketing checkbox writes true when ticked, and a later unticked entry
   const afterSecond = await marketingConsentRows();
   expect(afterSecond, 'the second, unticked entry wrote no second row').toHaveLength(1);
   expect(afterSecond[0]?.granted, 'the earlier true survives an unticked repeat').toBe(true);
+});
+
+/**
+ * Block 30d, Task 6, D7. THE COOKIE IS THE DEFECT, so this test plants one.
+ * Checked in a clean browser this passes with and without the change --
+ * there is nothing for the Station's language to win against, since
+ * playwright.config.ts already pins `en-US` and an unset `listener_locale`
+ * resolves the same way -- which is the shape of test this project has
+ * shipped before while believing it proved something.
+ *
+ * AND IT RUNS IN THE IFRAME, which is the presentation that matters: the
+ * obvious carrier for the language, `widget_station_identity`, is fetched
+ * only in the `app` presentation (`page.tsx:129`), so a test driving the
+ * standalone page would pass against a build where the embedded widget --
+ * the whole point of the product -- is still wrong. Reached the same way
+ * every other journey in this file reaches the menu, through
+ * `identifyInFrame`: the button this test asserts on does not exist before a
+ * session does, and a test that set `pw_session` itself would prove nothing
+ * about the widget's own resolution.
+ */
+test('the widget renders in the Station language even when the browser carries another', async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([{ name: 'locale', value: 'en', url: appOrigin }]);
+
+  const widget = await identifyInFrame(page, {
+    localPhone: LOCALE_VISITOR_LOCAL_PHONE,
+    phone: LOCALE_VISITOR_PHONE,
+    name: LOCALE_VISITOR_NAME,
+  });
+
+  // 'Pedir uma música' -- messages/pt.json's `widget.requestASong` -- not
+  // 'Request a song', which is what an English-resolving widget would show
+  // this cookie in hand.
+  await expect(widget.getByRole('button', { name: 'Pedir uma música' })).toBeVisible();
 });
 
 /**

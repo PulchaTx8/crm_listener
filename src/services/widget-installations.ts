@@ -2,6 +2,7 @@ import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 import { getUserSupabaseConfig } from '@/lib/supabase/config';
 import { generatePublicKey } from '@/lib/widget/code';
+import { isAvailable, type Locale } from '@/i18n/locales';
 import { readStationIdentity, type StationIdentity } from '@/lib/widget/station-identity';
 import { InternalError, NotFoundError, UnauthorizedError, ValidationError } from '@/lib/errors';
 import type { Database } from '@/lib/supabase/database.types';
@@ -9,8 +10,9 @@ import type { Database } from '@/lib/supabase/database.types';
 export type { StationIdentity };
 
 /**
- * Block 17a, spec §11. The one question the widget's page asks before it
- * renders anything: does this public key name an installation that is live?
+ * Block 17a, spec §11; Block 30d, D7. The two questions the widget's page asks
+ * before it renders anything: does this public key name an installation that
+ * is live, and — Task 6 — what language does that Station's widget render in?
  *
  * A DOOR, NOT A TABLE READ, and that is not a preference — it is the only thing
  * that works. `widget_installations` has RLS on and its ACL revoked (0159),
@@ -40,23 +42,41 @@ export type { StationIdentity };
  * such widget".
  */
 
+export interface InstallationContext {
+  found: boolean;
+  /** Null when the Station never chose, which means the ordinary resolution. */
+  listenerLocale: Locale | null;
+}
+
 /**
- * True only for a key that names an enabled, unarchived installation.
+ * `found` is true only for a key that names an enabled, unarchived
+ * installation. `listenerLocale` is the language that installation's Station
+ * chose its widget to render in for listeners, or null.
  *
- * `false` covers an unknown key, a disabled installation and an archived one
- * alike — 0161 answers identically for all three on purpose, so probing keys
- * learns nothing the iframe `src` did not already say.
+ * `found: false` covers an unknown key, a disabled installation and an
+ * archived one alike — 0161 answers identically for all three on purpose, so
+ * probing keys learns nothing the iframe `src` did not already say — and
+ * `listenerLocale` is null on every one of those too, the same collapse
+ * `widget_frame_context`'s own comment states for its five refusal causes.
  *
- * A DATABASE THAT CANNOT ANSWER THROWS rather than returning false. An outage
- * is not an installation that does not exist, and collapsing the two would
- * answer 404 to a Station whose configuration is perfectly correct — telling
- * an operator their key is wrong on the one day nothing is wrong with it.
+ * FILTERED THROUGH `isAvailable` before it is returned, rather than handed
+ * back as the door sent it: the value becomes an import path in `page.tsx`
+ * (`` `messages/${widgetLocale}.json` ``), which is the same reason
+ * `resolveLocale` (src/i18n/locales.ts) filters its own inputs. A Station that
+ * chose a language this deployment has since stopped serving gets the
+ * ordinary resolution instead of a crashed render.
+ *
+ * A DATABASE THAT CANNOT ANSWER THROWS rather than answering `found: false`.
+ * An outage is not an installation that does not exist, and collapsing the two
+ * would answer 404 to a Station whose configuration is perfectly correct —
+ * telling an operator their key is wrong on the one day nothing is wrong with
+ * it.
  */
-export async function installationExists(publicKey: string): Promise<boolean> {
+export async function installationContext(publicKey: string): Promise<InstallationContext> {
   // An empty segment cannot be an installation, and asking would spend a round
   // trip to be told so — `frameOrigins` short-circuits the same case for the
   // same reason.
-  if (!publicKey) return false;
+  if (!publicKey) return { found: false, listenerLocale: null };
 
   const { url, anonKey } = getUserSupabaseConfig();
   const supabase = createClient<Database>(url, anonKey, {
@@ -68,26 +88,35 @@ export async function installationExists(publicKey: string): Promise<boolean> {
   });
   if (error) throw error;
 
-  // The door answers `{"found": bool, "origins": [...]}`, which arrives typed
-  // as `Json`. Anything else — a shape a future migration changed, an envelope
-  // this code does not know — is NOT a found installation: the shape is checked
-  // rather than asserted, the same rule frame-cache.ts states for the same
-  // payload, and the unknown case falls to the refusal.
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) return false;
-  return (data as { found?: unknown }).found === true;
+  // The door answers `{"found": bool, "origins": [...], "listenerLocale": ...}`,
+  // which arrives typed as `Json`. Anything else — a shape a future migration
+  // changed, an envelope this code does not know — is NOT a found installation:
+  // the shape is checked rather than asserted, the same rule frame-cache.ts
+  // states for the same payload, and the unknown case falls to the refusal.
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    return { found: false, listenerLocale: null };
+  }
+
+  const row = data as { found?: unknown; listenerLocale?: unknown };
+  const listenerLocale =
+    typeof row.listenerLocale === 'string' && isAvailable(row.listenerLocale)
+      ? row.listenerLocale
+      : null;
+
+  return { found: row.found === true, listenerLocale };
 }
 
 /**
  * Block 19b. The Station behind a public key, for the header the application
  * presentation draws — `null` when there is nothing to draw.
  *
- * THE ANON KEY, same as `installationExists` above and for the same reason:
+ * THE ANON KEY, same as `installationContext` above and for the same reason:
  * 0185 grants this door to `anon` precisely because its caller is a page served
  * to an anonymous visitor. A service-role client here would be privilege with
  * no use.
  *
  * A DATABASE THAT CANNOT ANSWER RETURNS `null`, and this is the ONE place in
- * this file where a throw would be wrong — `installationExists` throws on
+ * this file where a throw would be wrong — `installationContext` throws on
  * purpose, because collapsing an outage into "no such installation" answers 404
  * to a Station whose configuration is correct. Here the caller has already
  * decided the installation exists; all that is left is a name and a picture,
@@ -112,8 +141,8 @@ export async function stationIdentity(publicKey: string): Promise<StationIdentit
 
 // ---------------------------------------------------------------------------
 // Block 17a, Task 11. The console's read and write path, entirely separate
-// from the anon door above: `installationExists` answers an anonymous visitor
-// with the one bit an <iframe> may learn, and everything below answers a
+// from the anon door above: `installationContext` answers an anonymous visitor
+// with the bits an <iframe> may learn, and everything below answers a
 // signed-in platform admin with the row itself.
 // ---------------------------------------------------------------------------
 

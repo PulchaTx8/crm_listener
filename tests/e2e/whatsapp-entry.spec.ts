@@ -51,7 +51,7 @@ import { provisionCustomer } from './provision';
  *      link` did not check until this block's fix round 1 (C1). `page.tsx`
  *      404s a dark Station on every other path; only `?link=expired` makes
  *      it render the identify form instead (`page.tsx`'s own comment on
- *      `installationExists`).
+ *      `installationContext`).
  */
 
 const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
