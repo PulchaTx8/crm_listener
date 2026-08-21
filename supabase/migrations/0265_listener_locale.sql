@@ -74,10 +74,10 @@ comment on function public.set_listener_locale(uuid, text) is
 --
 -- ONE KEY ADDED: listenerLocale. This is the door and not
 -- widget_station_identity (0185), which already answers the Station's name
--- and logo -- because src/app/(widget)/w/[publicKey]/page.tsx:129 calls the
--- identity door ONLY when the presentation is 'app', so an embedded widget,
+-- and logo -- because src/app/(widget)/w/[publicKey]/page.tsx guards its
+-- stationIdentity call with presentation === 'app', so an embedded widget,
 -- the product's whole point, would never receive a language carried there.
--- widget_frame_context is what installationExists calls on EVERY widget
+-- widget_frame_context is what installationContext calls on EVERY widget
 -- request in BOTH presentations, which makes it the only door that always
 -- runs.
 --
@@ -119,4 +119,4 @@ as $$
 $$;
 
 comment on function public.widget_frame_context(text) is
-  'The origins one installation may be framed by, for the Edge middleware to build frame-ancestors from, and (Block 30d, D7) the language its widget renders in for listeners. Answers {"found": false, "origins": [], "listenerLocale": null} for an unknown key, a disabled installation, an archived one, a SUSPENDED Station and a BLOCKED Organization alike -- one answer for five causes, so probing learns nothing (a distinct reason here would publish a customer''s billing status to anybody loading their home page), and so the caller has exactly one refusal branch to get right. The last two joins are 0164: without them a Station suspended for non-payment went on being framed until somebody remembered to disable the installation by hand. listenerLocale rides here rather than on widget_station_identity (0185) because this is the door installationExists calls on EVERY widget request in BOTH presentations -- page.tsx calls the identity door only when the presentation is app, so an embedded widget, the whole point of the product, would never receive a language carried there. A null listenerLocale -- an unset choice, same as a refusal -- means the widget resolves language the way it did before this block. GRANTED TO anon deliberately (spec Sec.4.3): the middleware holds the anon key and runs before any session exists.';
+  'The origins one installation may be framed by, for the Edge middleware to build frame-ancestors from, and (Block 30d, D7) the language its widget renders in for listeners. Answers {"found": false, "origins": [], "listenerLocale": null} for an unknown key, a disabled installation, an archived one, a SUSPENDED Station and a BLOCKED Organization alike -- one answer for five causes, so probing learns nothing (a distinct reason here would publish a customer''s billing status to anybody loading their home page), and so the caller has exactly one refusal branch to get right. The last two joins are 0164: without them a Station suspended for non-payment went on being framed until somebody remembered to disable the installation by hand. listenerLocale rides here rather than on widget_station_identity (0185) because this is the door installationContext calls on EVERY widget request in BOTH presentations -- page.tsx calls the identity door only when the presentation is app, so an embedded widget, the whole point of the product, would never receive a language carried there. A null listenerLocale -- an unset choice, same as a refusal -- means the widget resolves language the way it did before this block. GRANTED TO anon deliberately (spec Sec.4.3): the middleware holds the anon key and runs before any session exists.';

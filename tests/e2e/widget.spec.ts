@@ -1469,7 +1469,8 @@ test('the marketing checkbox writes true when ticked, and a later unticked entry
  *
  * AND IT RUNS IN THE IFRAME, which is the presentation that matters: the
  * obvious carrier for the language, `widget_station_identity`, is fetched
- * only in the `app` presentation (`page.tsx:129`), so a test driving the
+ * only where `page.tsx` guards its `stationIdentity` call with
+ * `presentation === 'app'`, so a test driving the
  * standalone page would pass against a build where the embedded widget --
  * the whole point of the product -- is still wrong. Reached the same way
  * every other journey in this file reaches the menu, through
