@@ -10,6 +10,7 @@ import { RefreshButton } from '@/components/ui/refresh-button';
 import { answerFilterState } from '@/lib/participations/answer-filter';
 import { PARTICIPATION_STATUSES, STATUS_LABEL_KEYS } from '@/lib/participation-status';
 import type { ParticipationSource } from '@/services/participations';
+import type { ProgrammeBand } from '@/lib/shows/programme-bands';
 // The Station-zone conversions come from the promotions screen's module rather
 // than being re-derived here, on that module's own stated rule: a second copy of
 // a timezone conversion is how two controls start disagreeing about which day
@@ -147,6 +148,7 @@ export function ParticipationsFilters({
   promotions,
   questions,
   canSearchByListener,
+  programme,
 }: {
   state: ParticipationListState;
   /**
@@ -159,6 +161,12 @@ export function ParticipationsFilters({
   currentHref: string;
   /** The Station's zone, so the day the operator picks is that Station's day. */
   timeZone: string;
+  /**
+   * Block 30e, item 18. Present only when the selected promotion belongs to a
+   * Programme. `bands` are the ones that START on the chosen day, already
+   * resolved by the page — this component picks nothing and derives nothing.
+   */
+  programme?: { showName: string; bands: ProgrammeBand[]; silent: boolean };
   promotions: PromotionOption[];
   /**
    * The selected promotion's questions that have options, or an empty list when
@@ -558,27 +566,79 @@ export function ParticipationsFilters({
         the upload. Labelling these "Recorded from/until" would describe a column
         this screen does not filter on.
       */}
-      <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">{t('enteredFrom')}</span>
-        <Input
-          type="date"
-          value={toZonedDate(state.from, timeZone)}
-          onChange={(e) => navigate({ from: fromZonedDay(e.target.value, timeZone, false) })}
-          aria-label={t('showEntriesMadeOnOrAfter')}
-          data-testid="participation-from-filter"
-        />
-      </label>
+      {programme ? (
+        <>
+          {/*
+            Item 18. With a Programme the range is not two instants: it is A DAY
+            and one of that Programme's bands on it. "Entered until" is gone
+            because the band's own end IS the end, and a second control would be
+            a way to contradict it.
+          */}
+          <label className="flex w-44 flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">{t('enteredOn')}</span>
+            <Input
+              type="date"
+              value={state.day ?? ''}
+              // The band goes with the day: a marker chosen on Monday names
+              // nothing on Tuesday, and carrying it over would silently pick
+              // whichever band happened to share the number.
+              onChange={(e) => navigate({ day: e.target.value || undefined, bandMarker: undefined })}
+              aria-label={t('showEntriesMadeOnThisDate')}
+              data-testid="participation-day-filter"
+            />
+          </label>
 
-      <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">{t('enteredUntil')}</span>
-        <Input
-          type="date"
-          value={toZonedDate(state.to, timeZone)}
-          onChange={(e) => navigate({ to: fromZonedDay(e.target.value, timeZone, true) })}
-          aria-label={t('showEntriesMadeOnOrBefore')}
-          data-testid="participation-to-filter"
-        />
-      </label>
+          <label className="flex w-56 flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">{t('programmeBand')}</span>
+            <Select
+              value={state.bandMarker !== undefined ? String(state.bandMarker) : ''}
+              disabled={programme.bands.length === 0}
+              onChange={(e) => navigate({ bandMarker: Number(e.target.value) })}
+              data-testid="participation-band-filter"
+            >
+              {programme.bands.map((band) => (
+                <option key={band.marker} value={band.marker}>
+                  {band.label}
+                  {band.overnight ? ` ${t('intoTheNextDay')}` : ''}
+                </option>
+              ))}
+            </Select>
+          </label>
+
+          <p
+            className="pb-2 text-xs text-muted-foreground"
+            data-testid="participation-programme-window"
+          >
+            {programme.silent
+              ? t('theProgrammeDoesNotAirOnThatDate', { programme: programme.showName })
+              : t('entriesInsideTheBandOf', { programme: programme.showName })}
+          </p>
+        </>
+      ) : (
+        <>
+          <label className="flex w-44 flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">{t('enteredFrom')}</span>
+            <Input
+              type="date"
+              value={toZonedDate(state.from, timeZone)}
+              onChange={(e) => navigate({ from: fromZonedDay(e.target.value, timeZone, false) })}
+              aria-label={t('showEntriesMadeOnOrAfter')}
+              data-testid="participation-from-filter"
+            />
+          </label>
+
+          <label className="flex w-44 flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">{t('enteredUntil')}</span>
+            <Input
+              type="date"
+              value={toZonedDate(state.to, timeZone)}
+              onChange={(e) => navigate({ to: fromZonedDay(e.target.value, timeZone, true) })}
+              aria-label={t('showEntriesMadeOnOrBefore')}
+              data-testid="participation-to-filter"
+            />
+          </label>
+        </>
+      )}
 
       {hasActiveParticipationFilters(state) && (
         <Link
