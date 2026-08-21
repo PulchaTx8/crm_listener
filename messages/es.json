@@ -624,7 +624,7 @@
     "purposeParticipationConfirmedWhen": "Se envía en el camino rápido de WhatsApp en el momento en que el propio hashtag del oyente lo inscribe en la promoción, sin nada más que el bot deba preguntar.",
     "purposeParticipationConfirmedName": "participation_confirmed",
     "purposeParticipationConfirmedSendsPromotion": "El nombre de la promoción",
-    "purposeParticipationDuplicateWhen": "Se envía en el mismo camino rápido cuando el oyente ya participaba en esta promoción.",
+    "purposeParticipationDuplicateWhen": "Se envía cuando el hashtag del oyente nombra una promoción en la que ya participaba, sea lo que sea que la promoción aún pida: esta respuesta viene de la comprobación que corre antes del camino rápido, no del camino rápido en sí.",
     "purposeParticipationDuplicateName": "participation_duplicate",
     "purposeParticipationDuplicateSendsPromotion": "El nombre de la promoción",
     "purposeParticipationTooSoonWhen": "Se envía cuando la promoción exige un intervalo mínimo entre participaciones y la última de este oyente aún no ha cumplido ese intervalo.",

@@ -28,8 +28,17 @@ function sha256Hex(value: string): string {
 interface MessageFixture {
   promotionId: string;
   organizationId: string;
-  /** Digits-only, no country code — the shape members.phone_normalized stores. */
+  /** Digits-only, no country code — the shape an OPERATOR types into a ficha. */
   localPhone: string;
+  /**
+   * The same number as WhatsApp delivers it, country code and all — and since
+   * Block 30d (D4, 0267) the shape members.phone_normalized holds for a
+   * listener the BOT registered. international_phone either leaves the
+   * delivered digits alone or puts a '+' in front of them, and
+   * phone_normalized strips the plus, so this is that column's value whatever
+   * country the Station carries.
+   */
+  deliveredPhone: string;
   eventA: string;
   eventB: string;
   /** (provider, external_id) — the SHA-256 hash webhook_events actually stores. */
@@ -123,6 +132,16 @@ async function seedPromotionWithIntegration(
     // exists to provoke; it returns `no_rules` straight from the rules
     // check, before either concurrent call's outcome matters at all.
     p_rules: `Race rules ${label}`,
+    // Block 30d (D8, 0267). A promotion with nothing left to ask of THIS
+    // listener is entered the moment the hashtag arrives -- outcome
+    // `recorded`, no link intent and no turn for the caller to run. Every case
+    // below is about the link path, or about the member race that happens on
+    // the way to it, so one requested field is what keeps this fixture on that
+    // path. `city` and not `full_name`: apply_member_creation fills full_name
+    // from the WhatsApp profile name, so a newcomer would satisfy that one on
+    // arrival and the fast path would take the message anyway. The fast path
+    // itself is covered by supabase/tests/73_fast_entry.test.sql.
+    p_requested_fields: ['city'],
   });
   if (promotionError || !promotionId) {
     throw new Error(`create_promotion failed: ${promotionError?.message}`);
@@ -172,6 +191,7 @@ async function seedPromotionWithIntegration(
     promotionId: promotionId as string,
     organizationId: customer.organizationId,
     localPhone,
+    deliveredPhone: waFrom,
     eventA,
     eventB,
     externalIdA,
@@ -182,6 +202,8 @@ async function seedPromotionWithIntegration(
 interface CrossStationFixture {
   organizationId: string;
   localPhone: string;
+  /** See MessageFixture.deliveredPhone: what the bot stores since 0267. */
+  deliveredPhone: string;
   eventA: string;
   eventB: string;
 }
@@ -239,6 +261,9 @@ async function seedCrossStationRace(label: string): Promise<CrossStationFixture>
     p_hashtag: hashtag,
     // Block 19a (0179) -- see seedPromotionWithIntegration's own comment.
     p_rules: `Cross A rules ${label}`,
+    // Block 30d (D8, 0267) -- likewise, and for the same reason: without a
+    // requested field both messages are entries rather than link intents.
+    p_requested_fields: ['city'],
   });
   if (promoAError || !promotionIdA) {
     throw new Error(`create_promotion (Station A) failed: ${promoAError?.message}`);
@@ -252,6 +277,7 @@ async function seedCrossStationRace(label: string): Promise<CrossStationFixture>
     p_whatsapp_enabled: true,
     p_hashtag: hashtag,
     p_rules: `Cross B rules ${label}`,
+    p_requested_fields: ['city'],
   });
   if (promoBError || !promotionIdB) {
     throw new Error(`create_promotion (Station B) failed: ${promoBError?.message}`);
@@ -291,7 +317,7 @@ async function seedCrossStationRace(label: string): Promise<CrossStationFixture>
     throw new Error('seedCrossStationRace: could not resolve both inserted event ids');
   }
 
-  return { organizationId: customer.organizationId, localPhone, eventA, eventB };
+  return { organizationId: customer.organizationId, localPhone, deliveredPhone: waFrom, eventA, eventB };
 }
 
 describe('the WhatsApp door', () => {
@@ -459,11 +485,18 @@ describe('the WhatsApp door', () => {
         // Exactly one members row for this phone, in this Organization —
         // the assertion the fix in 0062 makes true rather than a
         // characterization of the race it used to lose.
+        //
+        // ON THE DELIVERED FORM since Block 30d (D4, 0267): this listener is
+        // registered by the door itself, and the door writes
+        // international_phone's answer now instead of whatsapp_local_phone's.
+        // The exact stored spelling is pinned in
+        // supabase/tests/73_fast_entry.test.sql; what matters here is that one
+        // number is one row.
         const { count, error: countError } = await admin
           .from('members')
           .select('id', { count: 'exact', head: true })
           .eq('organization_id', fixture.organizationId)
-          .eq('phone_normalized', fixture.localPhone);
+          .eq('phone_normalized', fixture.deliveredPhone);
         expect(countError, `round ${round} member count query`).toBeNull();
         expect(count, `round ${round} produced ${count} members`).toBe(1);
       }
@@ -507,12 +540,13 @@ describe('the WhatsApp door', () => {
         }
 
         // Still one members row: cross-Station is still one Organization, and
-        // apply_member_lookup's dedup is Organization-scoped.
+        // apply_member_lookup's dedup is Organization-scoped. On the delivered
+        // form for the reason the race above gives (Block 30d, D4).
         const { count, error: countError } = await admin
           .from('members')
           .select('id', { count: 'exact', head: true })
           .eq('organization_id', fixture.organizationId)
-          .eq('phone_normalized', fixture.localPhone);
+          .eq('phone_normalized', fixture.deliveredPhone);
         expect(countError, `round ${round} member count query`).toBeNull();
         expect(count, `round ${round} produced ${count} members`).toBe(1);
       }

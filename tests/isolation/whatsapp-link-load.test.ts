@@ -358,11 +358,14 @@ describe('Block 19a — two hundred listeners hashtagging in at once', () => {
     //
     // The chain read back, per listener: the code in THAT listener's own
     // outbox row -> sha256(code) -> widget_link_tokens.token_hash -> its
-    // member_id -> members.phone_normalized -> compared against the LOCAL
-    // phone that listener was seeded with. Keying by localPhone throughout
-    // (rather than re-deriving it from deliveredPhone) is deliberate: it is
-    // the one value this file already trusts as ground truth for "which
-    // listener this is", seeded before any of the concurrency below ran.
+    // member_id -> members.phone_normalized -> compared against the DELIVERED
+    // phone that listener was seeded with. Delivered and not local since Block
+    // 30d (D4, 0267): the bot registers a listener through international_phone
+    // now, so the column holds the digits WhatsApp sent rather than the local
+    // form whatsapp_local_phone strips them to. Keying the map by localPhone
+    // throughout is still deliberate: it is the one value this file already
+    // trusts as ground truth for "which listener this is", seeded before any
+    // of the concurrency below ran.
     const rows = await fetchLoadOutboxRows();
     expect(rows).toHaveLength(LISTENER_COUNT);
 
@@ -412,7 +415,7 @@ describe('Block 19a — two hundred listeners hashtagging in at once', () => {
       expect(
         phoneByMemberId.get(memberId as string),
         `the code sent to ${listener.deliveredPhone} resolves to THAT listener's own member row, never another listener's`,
-      ).toBe(listener.localPhone);
+      ).toBe(listener.deliveredPhone);
     }
   });
 
@@ -443,7 +446,9 @@ describe('Block 19a — two hundred listeners hashtagging in at once', () => {
       .eq('organization_id', organizationId)
       .in(
         'phone_normalized',
-        listeners.map((listener) => listener.localPhone),
+        // The delivered form, for the reason the assertion above gives: since
+        // 0267 that is what the bot writes.
+        listeners.map((listener) => listener.deliveredPhone),
       );
     if (error) throw new Error(`could not count members: ${error.message}`);
     expect(count, 'exactly one members row per phone -- none collapsed together').toBe(

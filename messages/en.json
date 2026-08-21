@@ -624,7 +624,7 @@
     "purposeParticipationConfirmedWhen": "Sent on the WhatsApp fast path the moment a listener's own hashtag enters them in a promotion outright, with nothing left for the bot to ask.",
     "purposeParticipationConfirmedName": "participation_confirmed",
     "purposeParticipationConfirmedSendsPromotion": "The promotion's name",
-    "purposeParticipationDuplicateWhen": "Sent on the same fast path when the listener has already entered this promotion.",
+    "purposeParticipationDuplicateWhen": "Sent when a listener's hashtag names a promotion they have already entered, whatever else that promotion asks for: this reply comes from the check that runs ahead of the fast path, not from the fast path itself.",
     "purposeParticipationDuplicateName": "participation_duplicate",
     "purposeParticipationDuplicateSendsPromotion": "The promotion's name",
     "purposeParticipationTooSoonWhen": "Sent when the promotion enforces a minimum wait between entries and this listener's last one has not cleared it yet.",

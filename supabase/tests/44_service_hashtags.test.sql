@@ -331,14 +331,23 @@ values
 -- which is the exact case assertion 13 exists to pin: sending the hashtag is
 -- asking to take part, whether or not the widget's own list would ever have
 -- shown it.
+--
+-- IT ASKS FOR ONE FIELD, and that is Block 30d (D8, 0267) rather than
+-- decoration: a promotion with nothing left to ask of the listener is now
+-- ENTERED the moment the hashtag arrives, answering `recorded` and carrying no
+-- purpose or promotion_id at all -- so without a requested field the assertion
+-- below would stop testing the match order it was written for. `city` and not
+-- `full_name`, because apply_member_creation fills full_name from the WhatsApp
+-- profile name and a newcomer would satisfy that one immediately. The fast
+-- path itself is covered by supabase/tests/73_fast_entry.test.sql.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
-   whatsapp_enabled, hashtag, rules)
+   whatsapp_enabled, hashtag, rules, requested_fields)
 values
   ('00000000-0000-0000-0000-000000000609', '00000000-0000-0000-0000-000000000601',
    '00000000-0000-0000-0000-000000000602', 'Promo Station A com regras',
    now() - interval '1 day', now() + interval '30 days',
-   true, '#GANHEJA', 'Regulamento completo desta promocao.');
+   true, '#GANHEJA', 'Regulamento completo desta promocao.', '{city}');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000000608", "role": "authenticated"}';

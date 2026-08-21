@@ -897,6 +897,28 @@ values
    now() - interval '1 day', now() + interval '1 day',
    true, '#AGORA', 'Quero!', 'Nao');
 
+-- BLOCK 30d, D8 CHANGED WHAT AN "ASKS NOTHING" PROMOTION DOES, and this is
+-- what keeps the assertions below testing their own subject. Since 0267 a
+-- promotion with no question and no field still to fill for THIS listener is
+-- entered the moment the hashtag arrives -- outcome `recorded`, no link -- so
+-- every fixture above, all of which declared no requested field, would take
+-- that path and this section would silently stop exercising the hashtag
+-- matching, the two member lookups and the event bookkeeping it was written
+-- for. One requested field puts them back on the link path, which is the shape
+-- these assertions are about.
+--
+-- `city`, and it matters that it is not `full_name`: apply_member_creation
+-- fills full_name from the WhatsApp profile name, so a listener the bot
+-- registers would satisfy that one immediately and the link path would
+-- disappear again for exactly the newcomers this section covers.
+--
+-- The fast path itself is covered by supabase/tests/73_fast_entry.test.sql,
+-- promotion and listener both, including the case this update suppresses.
+update public.promotions
+   set requested_fields = '{city}'
+ where organization_id = '00000000-0000-0000-0000-0000000005f1'
+   and whatsapp_enabled;
+
 -- A helper so each case below is one insert and one call.
 --
 -- It catches, rather than letting a raise escape, and that is not politeness.
@@ -973,7 +995,7 @@ select is(
   (select count(*)::int from public.participations p
      join public.members m on m.id = p.member_id
     where p.promotion_id = '00000000-0000-0000-0000-000000000591'
-      and m.phone_normalized = '11988887777'),
+      and m.phone_normalized = '5511988887777'),
   0,
   'and writes NO entry: this function only ever hands back an intention now, and somebody who never follows the link has not participated, which is what makes an unfollowed link cost nothing');
 
@@ -989,6 +1011,14 @@ select is(
 -- enters them by hand; the pre-check reads participations and where a row came
 -- from is not its business. Everything below about a SECOND message needs a
 -- first entry to be second to, and A1 no longer writes one.
+--
+-- MATCHED ON THE INTERNATIONAL FORM since Block 30d (D4, 0267): the bot
+-- registers a listener through international_phone now, exactly like the
+-- console, the spreadsheet, the widget and the API, so the row A1 created
+-- carries 5511988887777 and no longer 11988887777. This Station has no country
+-- on file, which is why the stored digits are the delivered ones untouched
+-- rather than +55-prefixed -- international_phone leaves a number alone when
+-- no rule can place it (0260), and that is the same value either way here.
 insert into public.participations
   (promotion_id, member_id, organization_id, company_id, allows_multiple,
    status, source, participated_at)
@@ -997,15 +1027,15 @@ select '00000000-0000-0000-0000-000000000591', m.id,
        false, 'VALID', 'WHATSAPP', '2026-06-10T12:00:00Z'
   from public.members m
  where m.organization_id = '00000000-0000-0000-0000-0000000005f1'
-   and m.phone_normalized = '11988887777';
+   and m.phone_normalized = '5511988887777';
 select is(pg_temp.ingest('wamid.A2', '5511988887777', '#EUQUERO',
                          '2026-06-10T13:00:00Z') ->> 'status',
           'DUPLICATE', 'the same person twice is a duplicate, not a second entry');
 select is(
   (select count(*)::int from public.members
     where organization_id = '00000000-0000-0000-0000-0000000005f1'
-      and phone_normalized = '11988887777'),
-  1, 'the listener was registered once, without the country code');
+      and phone_normalized = '5511988887777'),
+  1, 'the listener was registered once, in the international form -- Block 30d, D4');
 
 -- The bot fills in the record Block 3 designed for it rather than inventing a
 -- second one. first_contact_at is the MESSAGE's timestamp for the same reason
@@ -1019,7 +1049,7 @@ select is(
                              'origin', first_contact_origin)
      from public.members
     where organization_id = '00000000-0000-0000-0000-0000000005f1'
-      and phone_normalized = '11988887777'),
+      and phone_normalized = '5511988887777'),
   jsonb_build_object('name', 'Ouvinte Bot',
                      'first_contact_at', '2026-06-10T12:00:00Z'::timestamptz,
                      'origin', 'WHATSAPP'),
@@ -1302,7 +1332,7 @@ select '00000000-0000-0000-0000-000000000592', m.id,
        true, 'VALID', 'WHATSAPP', '2026-06-10T12:00:00Z'
   from public.members m
  where m.organization_id = '00000000-0000-0000-0000-0000000005f1'
-   and m.phone_normalized = '11988883333';
+   and m.phone_normalized = '5511988883333';
 select is(pg_temp.ingest('wamid.R2', '5511988883333', '#REPETE',
                          '2026-06-10T13:00:00Z') ->> 'status',
           'TOO_SOON', 'a second entry inside the interval is recorded with the status that says so');
@@ -1457,7 +1487,7 @@ select is(
   (select count(*)::int from public.participations p
      join public.members m on m.id = p.member_id
     where p.promotion_id = '00000000-0000-0000-0000-000000000591'
-      and m.phone_normalized = '11988887777'),
+      and m.phone_normalized = '5511988887777'),
   2, 'and the listener who sent it still has exactly two entries: the one standing in for their first message finishing on the web, and the duplicate A2 recorded');
 
 -- No personal data in the audit trail (design spec D2) ------------------------------

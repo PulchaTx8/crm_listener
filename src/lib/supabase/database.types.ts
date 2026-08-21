@@ -6442,6 +6442,15 @@ export type Database = {
         Args: { p_member_id: string; p_promotion_id: string; p_status: string }
         Returns: string
       }
+      whatsapp_reply_envelope: {
+        Args: {
+          p_company_id: string
+          p_member_id: string
+          p_promotion_id: string
+          p_status: string
+        }
+        Returns: Json
+      }
       widget_enter_promotion: {
         Args: {
           p_answers?: Json
