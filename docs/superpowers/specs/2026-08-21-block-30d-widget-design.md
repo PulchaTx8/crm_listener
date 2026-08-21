@@ -111,14 +111,22 @@ separates them, and it is already the adopted rule: `whatsapp_local_phone`
 (0062) strips `55` only at lengths 12 and 13, and this function is that rule
 read in the other direction.
 
-Per country the pair (calling code, plausible national length) comes from a new
-`country_calling_code(alpha2)` covering exactly the 29 codes in
-`src/lib/countries.ts` — the set `country_alpha2` (0213) already names, held to
-it by the same kind of test `tests/unit/countries.test.ts` uses for that pair.
-**When the function cannot decide, it returns the digits unchanged** rather than
-guessing: an unrecognised country or an implausible length leaves a number that
-is no worse than what is stored today, and a wrong prefix would create exactly
-the duplicate this item exists to stop.
+A calling code alone is not enough to decide, which the collision above proves:
+`55` opens both a Brazilian country code and a Brazilian area code, and only
+the **national length** tells them apart — 10 or 11 digits is a number that
+needs a prefix, 12 or 13 is one that already has one. So the lookup is
+`country_phone_rule(alpha2)` answering *(calling code, national min, national
+max)*, and `international_phone` tests the international range **before** the
+national one.
+
+**It carries a row only for a country whose national numbering has been
+verified** — BR, PT, ES, US and CA at the time of writing — and **returns the
+digits unchanged for every other country**, and for a length no rule explains.
+That is the same scope `whatsapp_local_phone` states for itself ("Strips +55
+only; … other countries … are Block 9's reconciliation problem"), and it is the
+safe direction: a number left alone is no worse than what is stored today, while
+a wrong prefix creates exactly the duplicate this item exists to stop. Adding a
+country is one row plus the pgTAP case that pins it.
 
 ### D4 — The sanitation runs **at the doors**, not inside the lookup
 
@@ -136,11 +144,11 @@ one, twice over:
   signature explicitly and restate every grant (the ACL loss of Block 24).
 
 So `international_phone` is called by each door as the phone enters:
-`widget_verify_code` (0161/0164), `create_member` / `update_member` (live on
-0213/0220), `resolve_or_create_member` and `import_participations` — the manual
-entry and the spreadsheet, both reached from the Participations screen — the API
-intake (0152), and `withdraw_marketing_by_phone` (0231). One function, many call
-sites, which is what "one function" meant.
+`widget_verify_code` (live on 0164), `create_member` / `update_member` (live on
+0220), `resolve_or_create_member` (0054) and `import_participations` (live on
+0056) — the manual entry and the spreadsheet, both reached from the
+Participations screen — the API intake (0152), and `withdraw_marketing_by_phone`
+(0231). One function, many call sites, which is what "one function" meant.
 
 **The list is derived, not remembered.** `grep -rln "p_phone" supabase/migrations/`
 is what produced it, and the plan re-runs that grep rather than trusting this
@@ -198,11 +206,20 @@ covers `/w`. An operator who set the console to English and then opens the
 Station's own site sees an English widget, and would keep seeing one however the
 Station's language is stored.
 
-So the widget page reads `listener_locale` (carried on `widget_frame_context`,
-whose live definition is 0164) and wraps its own subtree in a
+So the widget page reads `listener_locale` and wraps its own subtree in a
 `NextIntlClientProvider` for that locale, overriding the root provider for
 everything under it. Server-rendered strings use
 `getTranslations({locale, namespace: 'widget'})`.
+
+**It rides on `widget_frame_context` (live on 0164), and the choice is not
+arbitrary.** The obvious carrier looks like `widget_station_identity` (0185),
+which already answers the Station's name and logo — but `page.tsx:129` calls it
+**only when the presentation is `app`**, so an embedded widget, which is the
+whole point of the product, would never receive it. `widget_frame_context` is
+the door `installationExists` calls on every widget request in both
+presentations, which makes it the only one that always runs. It gains a key;
+the middleware that reads `origins` from it for `frame-ancestors` is unaffected,
+because nothing there enumerates the object.
 
 **Known limit, accepted:** `<html lang>` is set by the root layout
 (`src/app/layout.tsx:46`), which cannot know which installation is being served.
@@ -262,16 +279,17 @@ consent row is written anyway.
 
 The objection was raised and the owner ruled; what this design does is make the
 row **say what actually happened**. `member_consents.origin` (0032) is free text
-and today the web door writes `'web-widget'` (`0186:222`). The fast path writes a
+and today the web door writes `'web-widget'` (`0234:157`). The fast path writes a
 value of its own, so a row produced by the act of entering is distinguishable
 from one produced by a click, for ever, by reading the row.
 
 **And `promotion_id` gets filled — on both paths.** The column exists for exactly
 this (`0032`'s comment: "recording which promotion's rules the Member agreed
-to") and the existing insert leaves it null. A `rules` consent that does not name
-the promotion cannot defend anything, and that matters more now that no one
-clicks. Fixing the clicked path too is a two-word change in a statement this
-block is already rewriting.
+to") and the `rules` insert leaves it null. The proof that this is an oversight
+rather than a policy is **in the same function**: the marketing consent Block 29c
+added a hundred lines below (`0234:254`, `0234:269`) does fill it. A `rules`
+consent that does not name the promotion cannot defend anything, and that matters
+more now that no one clicks.
 
 ---
 
@@ -283,7 +301,7 @@ Supabase runs each migration in its own transaction and a value added by
 
 | # | File | What |
 | --- | --- | --- |
-| 0260 | `international_phone.sql` | `country_calling_code(alpha2)` and `international_phone(phone, country)` |
+| 0260 | `international_phone.sql` | `country_phone_rule(alpha2)` and `international_phone(phone, country)` |
 | 0261 | `station_country_backfill.sql` | `'BR'` on every `companies` row with none (D5) |
 | 0262 | `member_phone_international.sql` | the eight local-form members, re-runnable (D5) |
 | 0263 | `phone_doors_international.sql` | the doors that write a phone call 0260 (D4) |
@@ -293,15 +311,29 @@ Supabase runs each migration in its own transaction and a value added by
 | 0267 | `whatsapp_fast_entry.sql` | `ingest_link_intent` takes the entry when nothing is left to ask (D8, D9) |
 | 0268 | `widget_fast_entry.sql` | `enter_promotion`'s fast path and the consent row (D8, D10) |
 
-**Every redefinition copies the LIVE definition forward.** Several of these
-rewrite functions that have been redefined since they were introduced —
-`widget_frame_context` is on 0164, not 0161; `widget_promotions` and
-`enter_promotion` are on 0186, not 0171. Re-deriving a body from the migration
-that introduced it silently reverts every repair made since, with nothing
-turning red. Read the live body first:
+**Every redefinition copies the LIVE definition forward.** Every function this
+block rewrites has been redefined since it was introduced, and **the first draft
+of this spec cited two of them wrongly** — which is the trap demonstrating
+itself:
+
+| Function | Introduced | **Live** |
+| --- | --- | --- |
+| `widget_frame_context` | 0161 | **0164** |
+| `widget_promotions` | 0171 | **0186** |
+| `widget_enter_promotion` | 0171 | **0234** |
+| `ingest_whatsapp_event` | 0062 | **0179** |
+| `create_member` / `update_member` | 0034 | **0220** |
+| `enqueue_whatsapp_outbound` | 0071 | **0224** |
+| `import_participations` | 0054 | **0056** |
+| `resolve_or_create_member` | 0054 | 0054 |
+| `whatsapp_conversation_steps` | 0066 | 0066 |
+
+Re-deriving a body from the migration that introduced it silently reverts every
+repair made since, with nothing turning red. The table is a convenience; the
+authority is the database:
 
 ```sql
-select pg_get_functiondef('public.enter_promotion'::regproc);
+select pg_get_functiondef('public.widget_enter_promotion'::regproc);
 ```
 
 **`create or replace` cannot rename a `returns table` column** (42P13) and
@@ -322,9 +354,8 @@ Block 24.
   through a real caller, both the taken-immediately case and the
   something-still-to-ask case. The template rule with a registration present,
   absent, and present-but-a-variable-missing.
-- **Unit.** `country_calling_code` against `COUNTRY_CODES`, the way
-  `countries.test.ts` holds the alpha-2 pair together; `readSteps` keeping a step
-  that carries `prompt`.
+- **Unit.** `readSteps` keeping a step that carries `prompt`, and the pure
+  function that decides a promotion needs no walk.
 - **e2e.** The widget showing a question's text; the widget rendering in the
   Station's language **while a `locale` cookie says otherwise**, which is the
   defect and therefore the only honest form of that test.
