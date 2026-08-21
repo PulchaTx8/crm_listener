@@ -294,7 +294,17 @@ const REQUIRED_TEST_FILES = [
   // second Station refused without reports.consolidated and never narrowed to
   // the one the caller does hold; and the two maps gating independently, so
   // members.view says nothing about music.view.
-  { path: 'tests/isolation/geography.test.ts', minTests: 6 },
+  //
+  // Block 30e added four more, all about the PROMOTIONS map, and the floor rose
+  // with them for the same reason: its own D11 (`total` equals the
+  // participations card's figure, every status, counted BEFORE the join to
+  // members) lives only here, and so do both halves of D12 — the map withheld
+  // rather than emptied without participations.view, and withheld rather than
+  // emptied without members.view. That second half is the one nothing else could
+  // catch: the function is SECURITY INVOKER, so a caller who cannot read members
+  // gets an empty map under a coverage line still naming a total, which reads as
+  // "this Station has no geography".
+  { path: 'tests/isolation/geography.test.ts', minTests: 10 },
   // Block 28. Five cases over the worker's fourth drain, and the floor is the
   // full count because three of them exist nowhere else.
   //

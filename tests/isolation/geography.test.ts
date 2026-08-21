@@ -40,6 +40,18 @@ interface GeographyPayload {
   total: number;
 }
 
+/** Block 30e's map carries two more fields per place, and a withheld array. */
+interface PromotionsGeographyPayload extends GeographyPayload {
+  places: {
+    key: string;
+    city: string | null;
+    count: number;
+    top_promotion: string | null;
+    top_promotion_count: number | null;
+  }[];
+  withheld: { figure: string; needs: string }[];
+}
+
 /**
  * Runs the worker's own two steps — sweep the members table for places, then
  * write a coordinate for each — through the service role, because that is who
@@ -286,6 +298,178 @@ describe('the geography aggregates', () => {
     expect(music.error!.code).toBe('42501');
     expect(music.error!.message).toMatch(/music\.view/);
     expect(music.data).toBeNull();
+  });
+
+  /**
+   * Block 30e, item 19. The promotions map, which counts a different population
+   * from both of its neighbours -- entries in the window rather than listeners as
+   * of its end -- and therefore has to agree with a different card.
+   */
+  it('counts exactly the population the participations card counts, and names the promotion most played in a place - design D11', async () => {
+    const label = `geo-promo-d11-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await signInAs(customer.email, customer.password);
+
+    const promotionOf = async (name: string) => {
+      const { data, error } = await owner.rpc('create_promotion', {
+        p_company_id: customer.companyId,
+        p_name: `${name} ${label}`,
+        p_starts_at: new Date(Date.now() - 86_400_000).toISOString(),
+        p_ends_at: new Date(Date.now() + 86_400_000).toISOString(),
+      });
+      if (error) throw new Error(`create_promotion failed: ${error.message}`);
+      return data as unknown as string;
+    };
+
+    const busier = await promotionOf('Busier');
+    const quieter = await promotionOf('Quieter');
+
+    const listenerIn = async (city: string | null, name: string) => {
+      const id = await createMemberAs(customer, customer.companyId, {
+        fullName: `${name} ${label}`,
+      });
+      if (city) {
+        await owner.rpc('update_member', {
+          p_member_id: id,
+          p_full_name: `${name} ${label}`,
+          p_city: city,
+          p_state: 'MA',
+          p_country: 'BR',
+        });
+      }
+      return id;
+    };
+
+    // Three listeners in one city and one with no place at all. The unplaced one
+    // is what makes `with_place` and `total` different numbers -- without it the
+    // equality below would hold while the coverage line said nothing.
+    const entries: [member: string, promotion: string][] = [
+      [await listenerIn('São Luís', 'Placed A'), busier],
+      [await listenerIn('São Luís', 'Placed B'), busier],
+      [await listenerIn('São Luís', 'Placed C'), quieter],
+      [await listenerIn(null, 'Unplaced'), busier],
+    ];
+
+    for (const [member, promotion] of entries) {
+      const { error } = await owner.rpc('record_participation', {
+        p_promotion_id: promotion,
+        p_member_id: member,
+        p_participated_at: new Date().toISOString(),
+        p_source: 'MANUAL',
+      });
+      if (error) throw new Error(`record_participation failed: ${error.message}`);
+    }
+
+    await resolveAllPlaces(customer);
+
+    const delegate = await grantRoleWith(customer, `${label}-full`, [
+      'promotions.view',
+      'participations.view',
+      'members.view',
+    ]);
+    const client = await signInAs(delegate.email, delegate.password);
+
+    const [geography, dashboard] = await Promise.all([
+      client.rpc('get_promotions_geography', { p_company_ids: [customer.companyId], ...WINDOW }),
+      client.rpc('get_promotions_dashboard', { p_company_ids: [customer.companyId], ...WINDOW }),
+    ]);
+    expect(geography.error).toBeNull();
+    expect(dashboard.error).toBeNull();
+
+    const payload = geography.data as unknown as PromotionsGeographyPayload;
+    const cards = (
+      dashboard.data as unknown as { cards: { participations?: { current?: number } } }
+    ).cards;
+
+    // THE ASSERTION THAT PINS D11, and the one that fails the moment somebody
+    // "improves" either count -- by filtering this map to VALID entries, say,
+    // which is the plausible change that would break it.
+    expect(payload.total).toBe(cards.participations?.current);
+    expect(payload.total).toBe(4);
+    // Three of the four reached a coordinate. Asserted separately, because
+    // `with_place === total` would satisfy the equality above while proving the
+    // coverage line says nothing.
+    expect(payload.with_place).toBe(3);
+
+    expect(payload.places).toHaveLength(1);
+    expect(payload.places[0]?.count).toBe(3);
+    // The promotion most played THERE -- two entries against one -- which is what
+    // makes this map worth more than a count.
+    expect(payload.places[0]?.top_promotion).toBe(`Busier ${label}`);
+    expect(payload.places[0]?.top_promotion_count).toBe(2);
+    expect(payload.withheld).toEqual([]);
+  });
+
+  /**
+   * D12, both halves. Neither permission refuses, because refusing would take
+   * down a panel whose cards the caller may legitimately read; and neither may
+   * produce an EMPTY MAP, because an empty map claims the Station has no
+   * geography rather than saying the caller may not see it.
+   */
+  it('withholds the promotions map without participations.view, naming what is missing', async () => {
+    const label = `geo-promo-noentries-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+
+    const delegate = await grantRoleWith(customer, `${label}-noentries`, [
+      'promotions.view',
+      'members.view',
+    ]);
+    const client = await signInAs(delegate.email, delegate.password);
+
+    const { data, error } = await client.rpc('get_promotions_geography', {
+      p_company_ids: [customer.companyId],
+      ...WINDOW,
+    });
+    expect(error).toBeNull();
+
+    const payload = data as unknown as PromotionsGeographyPayload;
+    expect(payload.withheld).toEqual([{ figure: 'places', needs: 'participations.view' }]);
+    expect(payload.places).toEqual([]);
+  });
+
+  it('withholds it without members.view too, because the map plots the listeners behind the entries', async () => {
+    const label = `geo-promo-nomembers-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+
+    // THE CASE THAT WOULD OTHERWISE FAIL SILENTLY. This function is SECURITY
+    // INVOKER, so without members.view the caller's own RLS cuts every listener
+    // and the map comes back empty -- under a coverage line still naming a total.
+    const delegate = await grantRoleWith(customer, `${label}-nomembers`, [
+      'promotions.view',
+      'participations.view',
+    ]);
+    const client = await signInAs(delegate.email, delegate.password);
+
+    const { data, error } = await client.rpc('get_promotions_geography', {
+      p_company_ids: [customer.companyId],
+      ...WINDOW,
+    });
+    expect(error).toBeNull();
+
+    const payload = data as unknown as PromotionsGeographyPayload;
+    expect(payload.withheld).toEqual([{ figure: 'places', needs: 'members.view' }]);
+    expect(payload.places).toEqual([]);
+  });
+
+  it('refuses the promotions map without promotions.view, which is the panel own gate', async () => {
+    const label = `geo-promo-refused-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+
+    const delegate = await grantRoleWith(customer, `${label}-nopromos`, [
+      'participations.view',
+      'members.view',
+    ]);
+    const client = await signInAs(delegate.email, delegate.password);
+
+    const { data, error } = await client.rpc('get_promotions_geography', {
+      p_company_ids: [customer.companyId],
+      ...WINDOW,
+    });
+
+    expect(error).not.toBeNull();
+    expect(error!.code).toBe('42501');
+    expect(error!.message).toMatch(/promotions\.view/);
+    expect(data).toBeNull();
   });
 
   it('refuses an empty Station list rather than answering for everything', async () => {

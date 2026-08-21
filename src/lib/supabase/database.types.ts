@@ -5111,6 +5111,15 @@ export type Database = {
         }
         Returns: Json
       }
+      get_promotions_geography: {
+        Args: {
+          p_company_ids: string[]
+          p_from?: string
+          p_preset?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_company_access_for: {
         Args: { p_company_id: string; p_user_id: string }
