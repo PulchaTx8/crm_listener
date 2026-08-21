@@ -427,6 +427,17 @@ describe('the promotion record', () => {
      * resubmitting it on an update about something else entirely survives —
      * neither the read nor the write silently drops it for this permission
      * shape.
+     *
+     * CONFIRMED BY RUNNING IT, NOT ASSUMED: this assertion passes against
+     * `promotion-fields.tsx` with the fix reverted too, because it never
+     * imports that file -- it calls `updatePromotion` directly with `showId`
+     * already resolved, the same shape the fixed form is now guaranteed to
+     * send, so nothing here forces the browser layer to be right. The one
+     * check that DOES go red on the unfixed file is
+     * `tests/unit/promotion-show-options.test.ts`. Left here anyway because
+     * it is still real coverage of a fact this fix depends on and nothing
+     * else in this suite asserts (D4's gap, above, is read-only) -- but it
+     * is not, on its own, proof that C1 is closed.
      */
     it('reads back and preserves show_id for a delegate without music.view, who cannot see Programmes at all', async () => {
       const label = `promo-edit-show-${Date.now()}`;
