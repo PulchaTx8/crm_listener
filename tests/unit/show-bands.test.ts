@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOvernight, toBands, type ScheduleRow } from '@/lib/shows/bands';
+import { bandsByMarker, isOvernight, toBands, type ScheduleRow } from '@/lib/shows/bands';
 
 /**
  * Block 18. `save_show` does bands → rows; this does rows → bands, and the two
@@ -86,5 +86,49 @@ describe('isOvernight', () => {
   /** Equal hours are not a night that lasts a week; they are a mistake. */
   it('does not call a zero-length band overnight', () => {
     expect(isOvernight({ days: [1], starts: '10:00', ends: '10:00' })).toBe(false);
+  });
+});
+
+/**
+ * Block 30e. The same reconstruction, keyed by the marker the rows carry, so the
+ * week grid can ask which band a given ROW belongs to and label an overnight tail
+ * with the hours the operator typed.
+ */
+describe('bandsByMarker', () => {
+  it('keys each reconstructed band by the marker its rows carry', () => {
+    const rows: ScheduleRow[] = [
+      { band: 1, weekday: 1, starts_at: '10:00:00', ends_at: '12:30:00' },
+      { band: 1, weekday: 2, starts_at: '10:00:00', ends_at: '12:30:00' },
+      { band: 2, weekday: 6, starts_at: '13:20:00', ends_at: '15:20:00' },
+    ];
+
+    const byMarker = bandsByMarker(rows);
+
+    expect([...byMarker.keys()]).toEqual([1, 2]);
+    expect(byMarker.get(1)).toEqual({ days: [1, 2], starts: '10:00', ends: '12:30' });
+    expect(byMarker.get(2)).toEqual({ days: [6], starts: '13:20', ends: '15:20' });
+  });
+
+  it('gives an overnight head and its tail one band, ending at the hour typed', () => {
+    const rows: ScheduleRow[] = [
+      { band: 1, weekday: 5, starts_at: '23:00:00', ends_at: '24:00:00' },
+      { band: 1, weekday: 6, starts_at: '00:00:00', ends_at: '02:00:00' },
+    ];
+
+    const byMarker = bandsByMarker(rows);
+
+    // One band, not two: the 24:00 row is this schema's own bookkeeping.
+    expect(byMarker.size).toBe(1);
+    expect(byMarker.get(1)).toEqual({ days: [5], starts: '23:00', ends: '02:00' });
+  });
+
+  it('agrees with toBands on the same rows', () => {
+    const rows: ScheduleRow[] = [
+      { band: 1, weekday: 5, starts_at: '23:00:00', ends_at: '24:00:00' },
+      { band: 1, weekday: 6, starts_at: '00:00:00', ends_at: '02:00:00' },
+      { band: 2, weekday: 3, starts_at: '08:00:00', ends_at: '09:00:00' },
+    ];
+
+    expect([...bandsByMarker(rows).values()]).toEqual(toBands(rows));
   });
 });

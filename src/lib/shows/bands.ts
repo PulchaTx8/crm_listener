@@ -40,7 +40,17 @@ function nextWeekday(weekday: number): number {
   return weekday === 7 ? 1 : weekday + 1;
 }
 
-export function toBands(rows: ScheduleRow[]): Band[] {
+/**
+ * The bands of a schedule, keyed by the marker their rows carry.
+ *
+ * The reconstruction lives HERE rather than inside `toBands` because two callers
+ * need two shapes of the same answer: the record dialog wants the bands in
+ * order, and Block 30e's week grid wants the band a given ROW belongs to, so it
+ * can label an overnight tail with the hours the operator typed instead of with
+ * the 00:00 this schema splits at. A second reconstruction beside the first
+ * would be a second thing to keep in step with `save_show`.
+ */
+export function bandsByMarker(rows: ScheduleRow[]): Map<number, Band> {
   const byMarker = new Map<number, ScheduleRow[]>();
   for (const row of rows) {
     const group = byMarker.get(row.band);
@@ -48,9 +58,11 @@ export function toBands(rows: ScheduleRow[]): Band[] {
     else byMarker.set(row.band, [row]);
   }
 
-  const bands: Band[] = [];
+  const bands = new Map<number, Band>();
 
   // Ordered by marker, so the screen lists bands in the order they were added.
+  // A Map keeps insertion order, which is what makes `toBands` below a
+  // projection of this one rather than a second sort.
   for (const marker of [...byMarker.keys()].sort((a, b) => a - b)) {
     const group = byMarker.get(marker) ?? [];
 
@@ -85,7 +97,7 @@ export function toBands(rows: ScheduleRow[]): Band[] {
       (row) => row.starts_at.startsWith('00:00') && tails.has(row.weekday),
     );
 
-    bands.push({
+    bands.set(marker, {
       days: starting.map((row) => row.weekday).sort((a, b) => a - b),
       starts: toClock(first.starts_at),
       ends: toClock(overnightTail ? overnightTail.ends_at : first.ends_at),
@@ -93,6 +105,11 @@ export function toBands(rows: ScheduleRow[]): Band[] {
   }
 
   return bands;
+}
+
+/** The same bands as a list, in marker order — the shape the schedule editor holds. */
+export function toBands(rows: ScheduleRow[]): Band[] {
+  return [...bandsByMarker(rows).values()];
 }
 
 /**
