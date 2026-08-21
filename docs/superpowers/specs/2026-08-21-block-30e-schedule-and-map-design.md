@@ -161,7 +161,7 @@ The reference image colours by category; the nearest thing this schema has is
 legend under the grid names them — a colour with no legend is decoration.
 
 Programmes with no kind — the four that predate Block 18, which
-`listShowsPage`'s own comment already singles out — render neutral, and the
+`listShows`' own comment already singles out — render neutral, and the
 legend names that state too. Colours are assigned by enum value rather than by
 position in the result, so two loads of the same week paint the same picture, and
 they are declared as token pairs that survive dark mode (Block 25).

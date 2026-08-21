@@ -6,17 +6,16 @@ import { logger } from '@/lib/logger';
 import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { decodeCursor } from '@/lib/keyset';
 import { parseRecordParam, SHOW_TABS } from '@/lib/record-params';
-import { SHOW_SEARCH_MAX_LENGTH, listShowsPage } from '@/services/shows';
-import type { ShowListPage } from '@/services/shows';
+import { SHOW_SEARCH_MAX_LENGTH, listShows } from '@/services/shows';
+import type { ShowList } from '@/services/shows';
 import { STATION_SEARCH_MAX_LENGTH, listCompanyAccess } from '../inventory/station-access';
 import { getMusicPermissions } from '../music/permissions';
 import { StationSearchForm } from '../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 import { ShowsFilters } from './shows-filters';
 import { ShowsGrid } from './shows-grid';
-import { parseShowCursor, parseShowListState, showHref } from './list-params';
+import { parseShowListState } from './list-params';
 import type { ShowSearchParams } from './list-params';
 
 /**
@@ -86,19 +85,16 @@ export default async function ShowsPage({
 
   const selected = viewable.find((c) => c.id === params.companyId) ?? first;
   const state = parseShowListState(params, selected.id);
-  const cursorParam = parseShowCursor(params);
 
-  let page: ShowListPage;
+  let page: ShowList;
   try {
-    page = await listShowsPage({
+    page = await listShows({
       companyId: state.companyId,
       search: state.search?.slice(0, SHOW_SEARCH_MAX_LENGTH),
       kind: state.kind,
       includeEnded: state.includeEnded,
       sort: state.sort,
       direction: state.direction,
-      cursor: cursorParam ? decodeCursor(cursorParam.value) : null,
-      cursorSide: cursorParam?.side ?? 'after',
     });
   } catch (cause) {
     logger.error({ err: cause, companyId: state.companyId }, 'could not read programmes');
@@ -167,10 +163,7 @@ export default async function ShowsPage({
         initialRows={page.rows}
         initialTotal={page.total}
         state={state}
-        previousHref={
-          page.previousCursor ? showHref(state, { side: 'before', value: page.previousCursor }) : null
-        }
-        nextHref={page.nextCursor ? showHref(state, { side: 'after', value: page.nextCursor }) : null}
+        capped={page.capped}
         manage={permissions.manage}
         initialRecord={parseRecordParam(params as Record<string, string | undefined>, SHOW_TABS)}
       />

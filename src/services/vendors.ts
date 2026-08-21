@@ -164,7 +164,7 @@ export async function listVendorsPage(params: VendorListParams): Promise<VendorL
   let query = build().order(column, { ascending });
   if (params.cursor) {
     // Neither sort column is nullable, so there is no null region for a cursor
-    // to cross into — the same reasoning listShowsPage records.
+    // to cross into — the same reasoning listSongsPage (services/music.ts) records.
     query = query.or(keysetFilter(column, readDirection, params.cursor, false));
   }
   query = query.order('id', { ascending });

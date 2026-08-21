@@ -19,8 +19,6 @@ export interface ShowSearchParams {
   ended?: string;
   sort?: string;
   dir?: string;
-  after?: string;
-  before?: string;
   record?: string;
 }
 
@@ -44,11 +42,6 @@ export interface ShowListState {
   includeEnded: boolean;
   sort: ShowSortKey;
   direction: SortDirection;
-}
-
-export interface ShowCursor {
-  side: 'after' | 'before';
-  value: string;
 }
 
 /** Alphabetical: a schedule is browsed by name, not by when somebody typed it. */
@@ -80,21 +73,17 @@ export function parseShowListState(raw: ShowSearchParams, companyId: string): Sh
   };
 }
 
-export function parseShowCursor(raw: ShowSearchParams): ShowCursor | null {
-  if (raw.before) return { side: 'before', value: raw.before };
-  if (raw.after) return { side: 'after', value: raw.after };
-  return null;
-}
-
 export function hasActiveShowFilters(state: ShowListState): boolean {
   return Boolean(state.search || state.kind || state.includeEnded);
 }
 
 /**
- * Omitting the cursor is how a filter or sort change resets paging, and it
- * must: a cursor is a position in one ordering of one result set.
+ * The whole address, rebuilt from the state every time.
+ *
+ * Block 30e, D1: there is no cursor to omit any more. The screen shows every
+ * programme, so a link only ever carries the Station, the filters and the sort.
  */
-export function showHref(state: ShowListState, cursor?: ShowCursor | null): string {
+export function showHref(state: ShowListState): string {
   const query = new URLSearchParams();
   query.set('companyId', state.companyId);
   if (state.stationSearch) query.set('station', state.stationSearch);
@@ -103,7 +92,6 @@ export function showHref(state: ShowListState, cursor?: ShowCursor | null): stri
   if (state.includeEnded) query.set('ended', '1');
   if (state.sort !== DEFAULT_SHOW_SORT) query.set('sort', state.sort);
   if (state.direction !== defaultDirectionFor(state.sort)) query.set('dir', state.direction);
-  if (cursor) query.set(cursor.side, cursor.value);
   return `/shows?${query.toString()}`;
 }
 

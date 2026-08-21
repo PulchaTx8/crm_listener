@@ -8,7 +8,6 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/c
 import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
-  PageControls,
   SortLink,
   Table,
   TableBody,
@@ -20,6 +19,7 @@ import {
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { SHOW_TABS } from '@/lib/record-params';
+import { SHOW_LIST_MAX } from '@/lib/shows/limits';
 import type { Band } from '@/lib/shows/bands';
 import type { ShowSummary } from '@/services/shows';
 import { endShowAction, type ShowFormState } from './actions';
@@ -29,12 +29,17 @@ import { ShowRecordDialog } from './show-record-dialog';
 
 /**
  * Block 18. The programme list, on the shape of `songs-grid.tsx`: a table under
- * a register button, paged by keyset, with the record opening as a modal over it
- * and writes patching the row in place.
+ * a register button, with the record opening as a modal over it and writes
+ * patching the row in place.
+ *
+ * IT NO LONGER PAGES. Block 30e, D1: the screen shows every programme of the
+ * Station in both of its views, because a week grid cannot page and two views
+ * disagreeing about how many programmes exist is worse than either. `capped`
+ * below is the honest half of that promise.
  *
  * Patching rather than re-rendering the route is the same rule songs, inventory
- * and members carry: a fresh render would rebuild the keyset list from page one
- * under whoever was reading it.
+ * and members carry: a fresh render would rebuild the list under whoever was
+ * reading it.
  */
 
 /**
@@ -50,16 +55,15 @@ export function ShowsGrid({
   initialRows,
   initialTotal,
   state,
-  previousHref,
-  nextHref,
+  capped,
   manage,
   initialRecord,
 }: {
   initialRows: ShowSummary[];
   initialTotal: number;
   state: ShowListState;
-  previousHref: string | null;
-  nextHref: string | null;
+  /** D1: whether SHOW_LIST_MAX cut the list. Said on the screen, never swallowed. */
+  capped: boolean;
   /** Whether the caller holds music.manage at this Station — a courtesy gate; save_show and end_show re-check it themselves. */
   manage: boolean;
   initialRecord: { recordId: string | null; tab: string | null };
@@ -225,12 +229,19 @@ export function ShowsGrid({
           </TableBody>
         </Table>
 
-        <PageControls
-          total={grid.total}
-          label={t('programmesLabel', { count: grid.total ?? 0 })}
-          previousHref={previousHref}
-          nextHref={nextHref}
-        />
+        {/* Block 30e, D1. There is nothing to page through: the count is what
+            tells the operator how many programmes there are, and the second line
+            appears only when the ceiling cut the list. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
+          <p className="text-sm text-muted-foreground" data-testid="shows-count">
+            {t('programmesLabel', { count: grid.total ?? 0 })}
+          </p>
+          {capped && (
+            <p className="text-sm text-muted-foreground" data-testid="shows-capped">
+              {t('showingTheFirstProgrammes', { count: SHOW_LIST_MAX })}
+            </p>
+          )}
+        </div>
       </div>
 
       <ShowRecordDialog

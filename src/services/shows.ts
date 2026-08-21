@@ -3,10 +3,11 @@ import { createClient } from '@supabase/supabase-js';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { getUserSupabaseConfig } from '@/lib/supabase/config';
 import { BusinessRuleError, InternalError, NotFoundError, UnauthorizedError } from '@/lib/errors';
-import { keysetFilter, keysetPage } from '@/lib/keyset';
-import type { Cursor, SortDirection } from '@/lib/keyset';
+import type { SortDirection } from '@/lib/keyset';
+import { SHOW_LIST_MAX } from '@/lib/shows/limits';
 import { escapeLikePattern } from '@/lib/postgrest';
 import { toBands, type Band, type ScheduleRow } from '@/lib/shows/bands';
+import type { GridShow } from '@/lib/shows/week-grid';
 import type { Database } from '@/lib/supabase/database.types';
 import type { ShowFormInput } from '@/schemas/shows';
 
@@ -34,8 +35,9 @@ function asCaller(accessToken: string) {
   });
 }
 
-export const SHOW_PAGE_SIZE = 25;
 export const SHOW_SEARCH_MAX_LENGTH = 100;
+
+export { SHOW_LIST_MAX };
 
 export type ShowSortKey = 'name' | 'created';
 
@@ -80,15 +82,16 @@ export interface ShowListParams {
   includeEnded?: boolean;
   sort: ShowSortKey;
   direction: SortDirection;
-  cursor: Cursor | null;
-  cursorSide: 'after' | 'before';
 }
 
-export interface ShowListPage {
+export interface ShowList {
   rows: ShowSummary[];
-  nextCursor: string | null;
-  previousCursor: string | null;
   total: number;
+  /**
+   * Whether the ceiling cut the list. Rendered as a line beside the count, never
+   * swallowed — see `SHOW_LIST_MAX`.
+   */
+  capped: boolean;
 }
 
 const SHOW_COLUMNS =
@@ -132,18 +135,22 @@ function toSummary(row: ShowRow, today: string): ShowSummary {
   };
 }
 
-export async function listShowsPage(params: ShowListParams): Promise<ShowListPage> {
+/**
+ * Block 30e, D1. Every programme of one Station, up to the ceiling that says so.
+ *
+ * A keyset cursor was the wrong apparatus for a list a week grid also has to
+ * draw: a grid cannot page, and paging the list while the grid showed everything
+ * would leave the two views disagreeing about how many programmes exist.
+ */
+export async function listShows(params: ShowListParams): Promise<ShowList> {
   const supabase = await createUserClient();
 
   const column = params.sort === 'name' ? 'name' : 'created_at';
-  const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
-  const ascending = walkingBack ? params.direction === 'desc' : params.direction === 'asc';
-  const readDirection: SortDirection = ascending ? 'asc' : 'desc';
+  const ascending = params.direction === 'asc';
 
   // The Station's own date rather than the server's, for the same reason
   // shows_on_air converts through companies.timezone: "ended" is a wall-clock
-  // question. The screen passes the date it computed from the Station it is
-  // showing, so this function never has to guess whose midnight it is.
+  // question.
   const today = new Date().toISOString().slice(0, 10);
 
   const build = (options?: { count: 'exact'; head: true }) => {
@@ -157,7 +164,7 @@ export async function listShowsPage(params: ShowListParams): Promise<ShowListPag
     // is nullable and a null end means indeterminate, which is very much on air.
     if (!params.includeEnded) q = q.or(`ends_on.is.null,ends_on.gte.${today}`);
 
-    // The four programmes that predate this block carry no kind at all, so this
+    // The four programmes that predate Block 18 carry no kind at all, so this
     // filter hides them: an operator narrowing to Musical is asking for the ones
     // marked Musical, and a null is not an unmarked member of every kind.
     if (params.kind) q = q.eq('kind', params.kind);
@@ -170,37 +177,94 @@ export async function listShowsPage(params: ShowListParams): Promise<ShowListPag
     return q;
   };
 
-  let query = build().order(column, { ascending });
-  if (params.cursor) {
-    // Neither sort column is nullable, so there is no null region for a cursor
-    // to cross into — the same reasoning listSongsPage records.
-    query = query.or(keysetFilter(column, readDirection, params.cursor, false));
-  }
-  query = query.order('id', { ascending });
-
-  const { data, error } = await query.limit(SHOW_PAGE_SIZE + 1);
+  // One past the ceiling, which is how `capped` knows there was more.
+  const { data, error } = await build()
+    .order(column, { ascending })
+    .order('id', { ascending })
+    .limit(SHOW_LIST_MAX + 1);
   if (error) throw new InternalError(`Could not read programmes: ${error.message}`);
 
   const rows = (data ?? []) as unknown as ShowRow[];
-
-  const { rows: page, nextCursor, previousCursor } = keysetPage(rows, {
-    pageSize: SHOW_PAGE_SIZE,
-    walkingBack,
-    hadCursor: params.cursor !== null,
-    cursorFor: (row) => ({
-      value: params.sort === 'name' ? row.name : row.created_at,
-      id: row.id,
-    }),
-  });
 
   const { count, error: countError } = await build({ count: 'exact', head: true });
   if (countError) throw new InternalError(`Could not count programmes: ${countError.message}`);
 
   return {
-    rows: page.map((row) => toSummary(row, today)),
-    nextCursor,
-    previousCursor,
+    rows: rows.slice(0, SHOW_LIST_MAX).map((row) => toSummary(row, today)),
     total: count ?? 0,
+    capped: rows.length > SHOW_LIST_MAX,
+  };
+}
+
+/**
+ * Block 30e, D4. The programmes to draw over one week: every live programme of
+ * the Station whose RUN OVERLAPS that week, which is a different question from
+ * the list's "is it over yet".
+ *
+ * The `includeEnded` filter deliberately has no part here. A programme that
+ * ended last month DID air in the weeks it ran, and a past week drawn without it
+ * would be a false picture of that week; a programme that has not started yet
+ * does not appear, because its run has not reached this week. Those two facts are
+ * the whole of the predicate below, and they are why this read lives beside
+ * `listShows` rather than as a flag on it.
+ *
+ * The search and the kind ARE shared with the list: item 12 asks for the same
+ * filters in both views.
+ */
+export interface ShowWeekParams {
+  companyId: string;
+  search?: string;
+  kind?: ShowKind;
+  /** `YYYY-MM-DD`: the Monday and the Sunday of the week being drawn. */
+  weekStart: string;
+  weekEnd: string;
+}
+
+export async function listShowsForWeek(
+  params: ShowWeekParams,
+): Promise<{ rows: GridShow[]; capped: boolean }> {
+  const supabase = await createUserClient();
+
+  // Two `or` groups, ANDed by PostgREST: starts early enough AND ends late
+  // enough. A null bound is an open one at that end -- a programme with no
+  // recorded start is on the air as far as this screen is concerned, which is
+  // how listShows already reads a null `ends_on`.
+  let query = supabase
+    .from('shows')
+    .select('id,name,kind,starts_on,ends_on,show_schedules(band,weekday,starts_at,ends_at)')
+    .eq('company_id', params.companyId)
+    .is('deleted_at', null)
+    .or(`starts_on.is.null,starts_on.lte.${params.weekEnd}`)
+    .or(`ends_on.is.null,ends_on.gte.${params.weekStart}`);
+
+  if (params.kind) query = query.eq('kind', params.kind);
+  if (params.search) {
+    const term = escapeLikePattern(params.search.slice(0, SHOW_SEARCH_MAX_LENGTH));
+    query = query.ilike('name', `%${term}%`);
+  }
+
+  const { data, error } = await query.order('name').limit(SHOW_LIST_MAX + 1);
+  if (error) throw new InternalError(`Could not read the week's programmes: ${error.message}`);
+
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    name: string;
+    kind: ShowKind | null;
+    starts_on: string | null;
+    ends_on: string | null;
+    show_schedules: ScheduleRow[] | null;
+  }[];
+
+  return {
+    capped: rows.length > SHOW_LIST_MAX,
+    rows: rows.slice(0, SHOW_LIST_MAX).map((row) => ({
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      startsOn: row.starts_on,
+      endsOn: row.ends_on,
+      schedules: row.show_schedules ?? [],
+    })),
   };
 }
 
@@ -212,7 +276,7 @@ export interface ReservableShow {
 /**
  * Programmes a reservation can be labelled for (Block 23's Reservas tab,
  * "Vincular programa"): active or starting in the future — the exact same
- * predicate listShowsPage's own `includeEnded` (default false) already
+ * predicate listShows' own `includeEnded` (default false) already
  * applies to its list, `ends_on` null or not yet reached, reused verbatim
  * here rather than a second wording of the same rule.
  *

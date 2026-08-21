@@ -206,6 +206,13 @@ test('an operator registers a programme with an overnight band and reads it back
   await ownerPage.getByTestId('shows-kind-filter').selectOption('MUSICAL');
   await expect(ownerPage.getByTestId('show-row')).toBeVisible({ timeout: 30_000 });
 
+  // BLOCK 30e, D1. The screen shows every programme this Station has, so there is
+  // nothing to page through and nothing to click. The count stays: without paging
+  // it is the only thing left that says how many rows there are.
+  await expect(ownerPage.getByTestId('shows-count')).toBeVisible();
+  await expect(ownerPage.getByRole('link', { name: 'Next' })).toHaveCount(0);
+  await expect(ownerPage.getByRole('link', { name: 'Previous' })).toHaveCount(0);
+
   // A PASTED ADDRESS OPENS THE SAME RECORD. Nothing on this page put the row in
   // memory, so this is the read path rather than the row the dialog was opened
   // from — the half that used to be impossible when the form was inline.

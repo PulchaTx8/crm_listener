@@ -2369,6 +2369,7 @@
     "editProgramme": "Editar {name}",
     "actionsForProgramme": "Acciones de {name}",
     "programmesLabel": "{count, plural, one {programa} other {programas}}",
+    "showingTheFirstProgrammes": "Mostrando los primeros {count} programas.",
     "noProgrammeMatchesTheseFilters": "Ningún programa corresponde a estos filtros.",
     "allKinds": "Todos los tipos",
     "clearFilters": "Limpiar filtros",
