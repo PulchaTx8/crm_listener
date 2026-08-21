@@ -95,6 +95,7 @@ test.beforeAll(async () => {
     [`Centro One ${stamp}`, CENTRO],
     [`No Address ${stamp}`, null],
   ];
+  const memberIds: string[] = [];
   for (const [fullName, neighbourhood] of listeners) {
     const { data, error } = await ownerClient.rpc('create_member', {
       p_company_id: companyId,
@@ -105,6 +106,29 @@ test.beforeAll(async () => {
     });
     if (error) throw new Error(`create_member(${fullName}) failed: ${error.message}`);
     if (!data) throw new Error(`create_member(${fullName}) returned no id`);
+    memberIds.push(data as unknown as string);
+  }
+
+  // BLOCK 30e, item 19. One entry per listener, the placeless one included: the
+  // promotions map counts ENTRIES, so its coverage line reads three of four for
+  // the same reason the audience one does — and if it counted only the entries
+  // it could place, both numbers would be three and the line would prove nothing.
+  const promotion = await ownerClient.rpc('create_promotion', {
+    p_company_id: companyId,
+    p_name: `Geo Promo ${stamp}`,
+    p_starts_at: new Date(Date.now() - 86_400_000).toISOString(),
+    p_ends_at: new Date(Date.now() + 86_400_000).toISOString(),
+  });
+  if (promotion.error) throw new Error(`create_promotion failed: ${promotion.error.message}`);
+
+  for (const memberId of memberIds) {
+    const { error } = await ownerClient.rpc('record_participation', {
+      p_promotion_id: promotion.data as unknown as string,
+      p_member_id: memberId,
+      p_participated_at: new Date().toISOString(),
+      p_source: 'MANUAL',
+    });
+    if (error) throw new Error(`record_participation failed: ${error.message}`);
   }
 
   // The worker's own two steps, through the service role because that is who
@@ -133,7 +157,7 @@ test.afterAll(async () => {
   for (const id of createdUserIds) await admin.auth.admin.deleteUser(id);
 });
 
-test('the geography panel: the tables and the coverage line stand without a map key, and nothing reaches Google', async ({
+test('the geography panels: the tables and the coverage lines stand without a map key, and nothing reaches Google', async ({
   page,
 }) => {
   // Watched from before the first navigation, so a request made during the
@@ -186,7 +210,27 @@ test('the geography panel: the tables and the coverage line stand without a map 
   await expect(page.getByTestId('map-not-configured')).toBeVisible();
   await expect(page.getByTestId('place-map')).toHaveCount(0);
 
-  // THE CLAIM THAT THE KEY GATE ACTUALLY GATES. Everything above is satisfied
-  // by a page that prints the right words while loading the library anyway.
+  // BLOCK 30e, ITEM 19. The same panel on the Promotions overview, counting a
+  // different population.
+  await page.goto('/dashboards/promotions');
+  await expect(page.getByTestId('geography-panel')).toBeVisible({ timeout: 30_000 });
+
+  // D11's noun, on the screen. Four entries were made and three came from a
+  // listener with an address, so the line reads the same two numbers the audience
+  // panel does — which is exactly why the WORD has to differ: a map of entries
+  // under a sentence about listeners would be the disagreement D12b exists to
+  // prevent, wearing the right numbers.
+  await expect(page.getByTestId('geography-coverage')).toContainText('3 of 4');
+  await expect(page.getByTestId('geography-coverage')).toContainText('entries');
+
+  // The promotion most played in a place, which is what this map has instead of
+  // the music panel's most-requested song.
+  await expect(page.getByTestId('geography-top-promotions')).toContainText(`Geo Promo ${stamp}`);
+  await expect(page.getByTestId('map-not-configured')).toBeVisible();
+  await expect(page.getByTestId('place-map')).toHaveCount(0);
+
+  // THE CLAIM THAT THE KEY GATE ACTUALLY GATES, now over both panels. Everything
+  // above is satisfied by a page that prints the right words while loading the
+  // library anyway.
   expect(googleRequests).toEqual([]);
 });

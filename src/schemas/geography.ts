@@ -55,7 +55,32 @@ export const musicGeographySchema = z.object({
   total: z.number().int(),
 });
 
+/**
+ * Block 30e, item 19. The promotions map: the same places, with the promotion
+ * most played in each — and a `withheld` array the other two do not have.
+ *
+ * Withheld rather than refused, because the panel's own gate is promotions.view
+ * and this figure answers to two more (participations.view and members.view).
+ * An empty `places` under an empty `withheld` means "nowhere is known yet"; an
+ * empty `places` beside a named permission means "you may not see it", and the
+ * panel says which — see 0270's header for why those two must not look alike.
+ */
+export const promotionsGeographySchema = z.object({
+  places: z.array(
+    geographyPlace.extend({
+      top_promotion: z.string().nullable(),
+      top_promotion_count: z.number().int().nullable(),
+    }),
+  ),
+  with_place: z.number().int(),
+  /** D11: the participations card's own figure for the same window, every status. */
+  total: z.number().int(),
+  withheld: z.array(z.object({ figure: z.string(), needs: z.string() })),
+});
+
 export type AudienceGeography = z.infer<typeof audienceGeographySchema>;
 export type MusicGeography = z.infer<typeof musicGeographySchema>;
+export type PromotionsGeography = z.infer<typeof promotionsGeographySchema>;
+export type PromotionsGeographyPlace = PromotionsGeography['places'][number];
 export type GeographyPlace = AudienceGeography['places'][number];
 export type MusicGeographyPlace = MusicGeography['places'][number];

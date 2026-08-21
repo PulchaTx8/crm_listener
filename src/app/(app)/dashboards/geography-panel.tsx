@@ -1,7 +1,11 @@
 import { getTranslations } from 'next-intl/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { GeographyPlace, MusicGeographyPlace } from '@/schemas/geography';
+import type {
+  GeographyPlace,
+  MusicGeographyPlace,
+  PromotionsGeographyPlace,
+} from '@/schemas/geography';
 import { PlaceMap } from './place-map';
 import { placeName } from './place-map-geometry';
 
@@ -44,12 +48,24 @@ export async function GeographyPanel({
   total,
   /** The Music panel passes its places, which carry a top song per place. */
   songs,
+  /** The Promotions panel passes its own, which carry the promotion most played there. */
+  promotions,
+  /**
+   * WHAT THE NUMBERS COUNT, named because the sentence changes with it: the
+   * Audience and Music panels count listeners, and Block 30e's Promotions panel
+   * counts entries. A coverage line reading "412 of 1,208 listeners" under a map
+   * of entries would be the same false claim that line exists to prevent, only
+   * wearing the right numbers.
+   */
+  subject = 'listeners',
 }: {
   title: string;
   places: GeographyPlace[];
   withPlace: number;
   total: number;
   songs?: MusicGeographyPlace[];
+  promotions?: PromotionsGeographyPlace[];
+  subject?: 'listeners' | 'entries';
 }) {
   const t = await getTranslations('dashboards');
   // TRIMMED, and a key that is only whitespace counts as unset. EasyPanel's
@@ -78,7 +94,9 @@ export async function GeographyPanel({
   const mapSource: (GeographyPlace & {
     top_song?: string | null;
     top_song_count?: number | null;
-  })[] = songs ?? places;
+    top_promotion?: string | null;
+    top_promotion_count?: number | null;
+  })[] = songs ?? promotions ?? places;
 
   const mapPlaces = mapSource.map((place) => ({
     key: place.key,
@@ -87,9 +105,17 @@ export async function GeographyPanel({
     count: place.count,
     name: placeName(place),
     lines: [
-      t('listenersHere', { count: place.count }),
+      t(subject === 'entries' ? 'entriesHere' : 'listenersHere', { count: place.count }),
       ...(place.top_song && place.top_song_count
         ? [t('mostRequestedHere', { song: place.top_song, count: place.top_song_count })]
+        : []),
+      ...(place.top_promotion && place.top_promotion_count
+        ? [
+            t('mostPlayedHere', {
+              promotion: place.top_promotion,
+              count: place.top_promotion_count,
+            }),
+          ]
         : []),
     ],
   }));
@@ -105,7 +131,7 @@ export async function GeographyPanel({
             without this sentence it implies the 412 are everybody — and a
             Station would plan a campaign on it. */}
         <p className="text-sm text-muted-foreground" data-testid="geography-coverage">
-          {t('placesCoverage', { withPlace, total })}
+          {t(subject === 'entries' ? 'entriesCoverage' : 'placesCoverage', { withPlace, total })}
         </p>
 
         {places.length === 0 ? (
@@ -134,17 +160,37 @@ export async function GeographyPanel({
                 caption={t('byCity')}
                 testId="geography-by-city"
                 nameHeader={t('city')}
-                countHeader={t('listenersColumn')}
+                countHeader={t(subject === 'entries' ? 'entriesColumn' : 'listenersColumn')}
                 rows={byCity}
               />
               <PlaceTable
                 caption={t('byNeighbourhood')}
                 testId="geography-by-neighbourhood"
                 nameHeader={t('neighbourhood')}
-                countHeader={t('listenersColumn')}
+                countHeader={t(subject === 'entries' ? 'entriesColumn' : 'listenersColumn')}
                 rows={byNeighbourhood}
               />
             </div>
+
+            {promotions && promotions.length > 0 && (
+              <PlaceTable
+                caption={t('mostPlayedByPlace')}
+                testId="geography-top-promotions"
+                nameHeader={t('place')}
+                countHeader={t('promotion')}
+                rows={promotions
+                  .filter((place) => place.top_promotion)
+                  .slice(0, TOP_N)
+                  .map((place) => ({
+                    // The same function the map's hover bubble titles a circle
+                    // with, so a place cannot be named one way here and another
+                    // way over its own dot.
+                    name: placeName(place),
+                    label: place.top_promotion ?? '',
+                    count: place.top_promotion_count ?? 0,
+                  }))}
+              />
+            )}
 
             {songs && songs.length > 0 && (
               <PlaceTable

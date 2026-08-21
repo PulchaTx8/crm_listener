@@ -8,6 +8,8 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getPromotionsDashboard } from '@/services/dashboards';
 import type { PromotionsDashboard } from '@/schemas/dashboards';
+import { getPromotionsGeography } from '@/services/geography';
+import type { PromotionsGeography } from '@/schemas/geography';
 import { MonthlyBars } from '@/components/charts/monthly-bars';
 import { SplitDonut } from '@/components/charts/split-donut';
 import { TopList } from '@/components/charts/top-list';
@@ -23,6 +25,7 @@ import { StationSelection } from '../station-selection';
 import { DashboardCards, WithheldFigure } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
 import { StationPeriodNote } from '../station-period-note';
+import { GeographyPanel } from '../geography-panel';
 import { ExportDialog } from '@/components/reports/export-dialog';
 import { withOperatorLabels } from '../slice-labels';
 
@@ -139,11 +142,26 @@ export default async function PromotionsDashboardPage({
   const selection = parsePeriod(params);
 
   let dashboard: PromotionsDashboard;
+  /**
+   * Block 30e, item 19. A DELIBERATELY NARROWER failure than the cards above: a
+   * geography read that throws must cost the map and nothing else — the reasoning
+   * services/geography.ts gives for living apart from services/dashboards.ts. The
+   * three dashboard reads are what this page cannot render without; this one is a
+   * panel below them, and a Station whose geocoding is misconfigured should still
+   * see its cards.
+   */
+  let geography: PromotionsGeography | null = null;
   try {
     dashboard = await getPromotionsDashboard(companyIds, selection);
   } catch (cause) {
     logger.error({ err: cause, companyIds }, 'could not load the promotions dashboard');
     return <LoadError message={describeDashboardError(cause, t)} />;
+  }
+
+  try {
+    geography = await getPromotionsGeography(companyIds, selection);
+  } catch (cause) {
+    logger.error({ err: cause, companyIds }, 'could not load the promotions geography');
   }
 
   // Whether the Station list above is the caller's WHOLE relationship or a
@@ -312,6 +330,32 @@ export default async function PromotionsDashboardPage({
           </CardContent>
         </Card>
       </div>
+
+      {/* Block 30e, item 19. Where the entries of this period came from.
+          WITHHELD RATHER THAN HIDDEN when a permission is missing (D12): a panel
+          that vanishes teaches the operator that the Station has no geography,
+          and a zeroed one lies outright. `withheld` names which permission, the
+          way the five figures above already do. */}
+      {geography &&
+        (geography.withheld.length > 0 ? (
+          <Card className="mt-6" data-testid="geography-panel">
+            <CardHeader>
+              <CardTitle>{t('whereTheEntriesCameFrom')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <WithheldFigure needs={geography.withheld[0]?.needs} />
+            </CardContent>
+          </Card>
+        ) : (
+          <GeographyPanel
+            title={t('whereTheEntriesCameFrom')}
+            places={geography.places}
+            promotions={geography.places}
+            withPlace={geography.with_place}
+            total={geography.total}
+            subject="entries"
+          />
+        ))}
     </>
   );
 }
