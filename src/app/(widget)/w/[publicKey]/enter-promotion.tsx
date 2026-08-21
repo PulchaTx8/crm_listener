@@ -570,40 +570,43 @@ function Question({
 }) {
   const t = useTranslations('widget');
 
-  if (step.questionKind === 'ESSAY') {
-    return (
-      <label className="flex flex-col gap-1 text-sm">
-        {t('yourAnswer')}
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          maxLength={2000}
-          className="rounded-md border bg-background p-2 text-sm"
-          data-testid="widget-promotion-answer"
-        />
-      </label>
-    );
-  }
-
   return (
-    <fieldset className="flex flex-col gap-2" data-testid="widget-promotion-options">
-      <legend className="text-sm">{t('chooseOne')}</legend>
-      {options.map((option) => (
-        <label key={option.id} className="flex items-center gap-2 text-sm">
+    <>
+      <p className="text-base font-medium" data-testid="widget-question-prompt">
+        {step.prompt}
+      </p>
+      {step.questionKind === 'ESSAY' ? (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('yourAnswer')}
           <input
-            type="radio"
-            name="option"
-            value={option.id}
-            checked={value === option.id}
-            onChange={() => onChange(option.id)}
-            className="h-4 w-4 border-input"
-            data-testid={`widget-promotion-option-${option.id}`}
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            maxLength={2000}
+            className="rounded-md border bg-background p-2 text-sm"
+            data-testid="widget-promotion-answer"
           />
-          <span>{option.label}</span>
         </label>
-      ))}
-    </fieldset>
+      ) : (
+        <fieldset className="flex flex-col gap-2" data-testid="widget-promotion-options">
+          <legend className="text-sm">{t('chooseOne')}</legend>
+          {options.map((option) => (
+            <label key={option.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="option"
+                value={option.id}
+                checked={value === option.id}
+                onChange={() => onChange(option.id)}
+                className="h-4 w-4 border-input"
+                data-testid={`widget-promotion-option-${option.id}`}
+              />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+    </>
   );
 }
 

@@ -47,12 +47,12 @@ describe('readSteps', () => {
       readSteps([
         { kind: 'consent' },
         { kind: 'field', field: 'city' },
-        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
+        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta essa música?' },
       ]),
     ).toEqual([
       { kind: 'consent' },
       { kind: 'field', field: 'city' },
-      { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
+      { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta essa música?' },
     ]);
   });
 
@@ -80,6 +80,28 @@ describe('readSteps', () => {
     for (const value of [null, undefined, {}, 'consent', 7]) {
       expect(readSteps(value)).toEqual([]);
     }
+  });
+
+  it('keeps the prompt the door now sends', () => {
+    const steps = readSteps([
+      { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
+    ]);
+
+    expect(steps).toEqual([
+      { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
+    ]);
+  });
+
+  // The door and the browser ship separately: a bundle held from before 0264
+  // must not start dropping every question because a key it never sent is
+  // absent. Dropping the step would blank the walk, which is worse than a
+  // question drawn without its text.
+  it('keeps a question that carries no prompt', () => {
+    const steps = readSteps([{ kind: 'question', questionId: 'q1', questionKind: 'ESSAY' }]);
+
+    expect(steps).toEqual([
+      { kind: 'question', questionId: 'q1', questionKind: 'ESSAY', prompt: '' },
+    ]);
   });
 });
 
@@ -143,8 +165,8 @@ describe('screensFor', () => {
         { kind: 'consent' },
         { kind: 'field', field: 'city' },
         { kind: 'field', field: 'address' },
-        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
-        { kind: 'question', questionId: 'q2', questionKind: 'ESSAY' },
+        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
+        { kind: 'question', questionId: 'q2', questionKind: 'ESSAY', prompt: 'Qual é a sua opinião?' },
       ]),
     ).toEqual([
       [{ kind: 'consent' }],
@@ -152,8 +174,8 @@ describe('screensFor', () => {
         { kind: 'field', field: 'city' },
         { kind: 'field', field: 'address' },
       ],
-      [{ kind: 'question', questionId: 'q1', questionKind: 'QUIZ' }],
-      [{ kind: 'question', questionId: 'q2', questionKind: 'ESSAY' }],
+      [{ kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' }],
+      [{ kind: 'question', questionId: 'q2', questionKind: 'ESSAY', prompt: 'Qual é a sua opinião?' }],
     ]);
   });
 
@@ -167,7 +189,7 @@ describe('firstUnansweredScreen', () => {
     { kind: 'consent' },
     { kind: 'field', field: 'city' },
     { kind: 'field', field: 'address' },
-    { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
+    { kind: 'question', questionId: 'q1', questionKind: 'QUIZ', prompt: 'Quem canta?' },
   ]);
 
   it('answers null when every step has something in it', () => {

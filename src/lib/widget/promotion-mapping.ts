@@ -10,7 +10,22 @@
 export type WidgetStep =
   | { kind: 'consent' }
   | { kind: 'field'; field: string }
-  | { kind: 'question'; questionId: string; questionKind: string };
+  | {
+      kind: 'question';
+      questionId: string;
+      questionKind: string;
+      /**
+       * The text the operator wrote (`promotion_questions.prompt`, 0041, which
+       * is `not null` with a non-blank CHECK). Block 30d, item 1: until 0264
+       * the step carried the question's id and kind and no words at all, so the
+       * panel drew alternatives under nothing.
+       *
+       * EMPTY STRING WHEN THE DOOR DID NOT SEND ONE, rather than dropping the
+       * step: a browser holding a bundle from before 0264 would otherwise lose
+       * every question, which turns a missing sentence into a blank walk.
+       */
+      prompt: string;
+    };
 
 /** One alternative a listener can choose. Never carries which one is right. */
 export interface WidgetOption {
@@ -149,7 +164,12 @@ export function readSteps(value: unknown): WidgetStep[] {
       typeof step.questionId === 'string' &&
       typeof step.questionKind === 'string'
     ) {
-      steps.push({ kind: 'question', questionId: step.questionId, questionKind: step.questionKind });
+      steps.push({
+        kind: 'question',
+        questionId: step.questionId,
+        questionKind: step.questionKind,
+        prompt: typeof step.prompt === 'string' ? step.prompt : '',
+      });
     }
   }
   return steps;

@@ -159,6 +159,14 @@ const LISTENER_NOTE = 'toca pra minha mae, ela ouve todo dia';
 const PROMOTION_RULES = 'Promoção válida para maiores de 18 anos. Um cupom por pessoa.';
 
 /**
+ * Block 30d, item 1a. The quiz question's own text, seeded through
+ * `save_promotion_question` below and asserted on screen further down. Lifted
+ * to a constant read by both sites so the two cannot drift into a test that
+ * passes against a sentence that merely looks like the one the door sent.
+ */
+const QUESTION_PROMPT = 'Qual é a capital do estado?';
+
+/**
  * The Block 17c fixture promotion's own name — named here, not just inlined
  * where it is created, because Block 20a's refusal-switch journey below
  * needs to pick it out of a list by role rather than by position: that list
@@ -550,7 +558,7 @@ test.beforeAll(async ({}, testInfo) => {
   const { error: questionError } = await ownerClient.rpc('save_promotion_question', {
     p_promotion_id: seededPromotionId,
     p_kind: 'QUIZ',
-    p_prompt: 'Qual é a capital do estado?',
+    p_prompt: QUESTION_PROMPT,
     // Required for a question with alternatives (promotion_questions_list_fields)
     // even on a promotion that only converses on the web — a one-door assumption
     // still standing, and noted rather than fixed as a passenger here.
@@ -829,6 +837,11 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   // changed the feature in.
   await widget.getByTestId('widget-promotion-field-gender').selectOption('F');
   await widget.getByTestId('widget-promotion-next').click();
+
+  // Block 30d, item 1a. THE QUESTION'S OWN WORDS, ABOVE THE ALTERNATIVES --
+  // before 0264 the step carried only the question's id and kind, and this
+  // screen drew a list of options under nothing at all.
+  await expect(widget.getByTestId('widget-question-prompt')).toHaveText(QUESTION_PROMPT);
 
   // THE ALTERNATIVES, WHICH IS THE REPAIR. Before it, this screen was a text
   // box: the listener typed prose, participation_answers_shape refused it and
