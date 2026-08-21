@@ -481,6 +481,39 @@ Two consequences worth recording rather than rediscovering:
   screen. **Three journeys** use them, which is the number this paragraph first
   reported as promotions.
 
+### D10b — A link that names a no-walk promotion lands on **one screen with one button**
+
+Fix round 3, and it exists because D10 as first built broke Block 19a's contract.
+
+`?open=promotion&id=…` promises the widget opens **at the panel the link was
+minted for** — the e2e case is titled "answers the open target it was minted
+for". D10 turned the fast path's only entry point into the **list row's own
+form**, and a link performs no tap on a list row. So `needsNoWalk` was true, the
+panel deliberately drew no walk, and the listener landed on the generic promotion
+list. The promise was broken precisely for the promotions this block set out to
+make easiest to enter, and no task caught it because each was scoped to its own
+e2e spec.
+
+`decideAutoOpen` gains a **fourth outcome**, `confirm`, rather than the panel
+growing a branch of its own. The decision turns on the same two inputs as the
+other three — the listener's own promotion list, and the id — so answering it in
+the effect would be the same question asked in two places, free to drift; and as
+an outcome it is unit-testable, which a branch inside a `useEffect` is not.
+
+**Not the list, and not an automatic entry.** The tempting shortcut was to enter
+on render, since the promotion asks nothing. It is wrong: this door writes a
+participation *and* a consent row, so a page that entered on render would enter
+again on a refresh, on a link opened by mistake, and on whatever fetches a URL to
+preview it. The list already costs one deliberate tap; the link costs the same
+one, on a screen that names the promotion and shows its rules. One tap is not an
+additional question, so item 14 still holds.
+
+**Already-entered is still tested first**, and the order is load-bearing: a
+no-walk promotion this listener has already entered stays `show-list`, the
+ordinary render that shows them their own promotion with `alreadyEntered` on it.
+Reversed, they would be handed a button whose only possible outcome is the
+refusal `already_entered`.
+
 ---
 
 ## 5. Migrations

@@ -191,7 +191,36 @@ export function readSteps(value: unknown): WidgetStep[] {
  * entitled to see; there is no fourth outcome to invent because there is no
  * fourth thing this list can say about an id.
  *
- * THREE OUTCOMES, NOT TWO. A first version folded "already entered" into the
+ * FOUR OUTCOMES SINCE BLOCK 30d's FIX ROUND 3, and the fourth is here rather
+ * than in the panel's effect for the reason the third is: it is decided by the
+ * same two inputs as the others, so answering it anywhere else would be the
+ * same question asked in two places, free to drift. `confirm` is a promotion
+ * this listener has nothing left to answer for -- `needsNoWalk`, below in this
+ * file -- reached by a LINK rather than by a tap on the list.
+ *
+ * WHY IT IS NOT `open`. `open` means "walk this promotion", and a promotion
+ * with nothing to ask has no walk to draw: the panel would render a consent
+ * screen the owner's ruling of 2026-08-21 removed from this path, or, once it
+ * stopped rendering that, nothing at all -- which is the defect this outcome
+ * exists to close. A link that named a promotion dropped the listener on the
+ * generic list.
+ *
+ * WHY IT IS NOT AN ENTRY. The list's own fast path submits on the tap, and the
+ * tap is the deliberate act. Arriving by link, no act has happened yet: a
+ * screen that entered on render would enter again on a refresh, on a link
+ * opened by mistake, and on whatever fetches a URL to preview it -- and this
+ * door writes a participation and a consent row. So `confirm` names a SCREEN,
+ * and the panel puts one button on it. One tap, exactly what the list costs,
+ * and not one more question -- which is what item 14 asked for.
+ *
+ * ALREADY-ENTERED IS TESTED FIRST and that order is load-bearing: a no-walk
+ * promotion this listener has already entered is still `show-list`, the
+ * answer that shows them their own promotion with `alreadyEntered` on it.
+ * Reversing the two would offer them an entry the door would refuse.
+ *
+ * WHY THERE WERE THREE, which is the reasoning the fourth was added on top of
+ * rather than a live count -- Block 20a's fix round 1: a first version folded
+ * "already entered" into the
  * same bucket as "not in the list at all" and sent both back to the bare
  * two-button menu — which is wrong for the one that IS in the list: a
  * listener who tapped a link about a specific promotion they already
@@ -200,10 +229,12 @@ export function readSteps(value: unknown): WidgetStep[] {
  * nothing and letting the ordinary list render is what shows them their own
  * promotion, disabled, with `alreadyEntered` already on screen — the answer
  * to the question their link actually asked, in less code than a special
- * screen would have taken.
+ * screen would have taken. That argument is why `show-list` still wins over
+ * `confirm` today.
  */
 export type AutoOpenDecision =
   | { action: 'open'; promotion: WidgetPromotion }
+  | { action: 'confirm'; promotion: WidgetPromotion }
   | { action: 'show-list' }
   | { action: 'back-to-menu' };
 
@@ -211,6 +242,7 @@ export function decideAutoOpen(promotions: WidgetPromotion[], autoOpenId: string
   const match = promotions.find((promotion) => promotion.id === autoOpenId);
   if (!match) return { action: 'back-to-menu' };
   if (match.alreadyEntered) return { action: 'show-list' };
+  if (needsNoWalk(match.steps)) return { action: 'confirm', promotion: match };
   return { action: 'open', promotion: match };
 }
 
@@ -246,6 +278,9 @@ export function screensFor(steps: WidgetStep[]): WidgetStep[][] {
  * this is not `screensFor(steps).length === 1` written another way round --
  * that reads as an opinion about layout, and this is a question about what is
  * being asked.
+ *
+ * READ BY `decideAutoOpen` ABOVE AS WELL AS BY THE PANEL, which is why the two
+ * cannot disagree about what a link should open: one function, both callers.
  *
  * A COURTESY, NEVER A GUARD -- the same standing `firstUnansweredScreen` has.
  * `widget_enter_promotion` recomputes the step list and remains the only

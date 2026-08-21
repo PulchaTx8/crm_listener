@@ -74,6 +74,25 @@ export function EnterPromotionPanel({
 
   const [list, setList] = useState<ListState>({ status: 'loading' });
   const [chosen, setChosen] = useState<WidgetPromotion | null>(null);
+  /**
+   * Block 30d, fix round 3. The promotion a LINK named that asks this listener
+   * nothing — `decideAutoOpen`'s `confirm`.
+   *
+   * SEPARATE FROM `chosen` BECAUSE THE TWO ARRIVALS ARE NOT THE SAME EVENT.
+   * Reaching such a promotion from the list means the listener has already
+   * tapped it, and that tap IS the entry (the list's own form submits on it).
+   * Reaching it from a link means no act has happened yet, so one is owed —
+   * and `chosen` cannot express the difference, because it is set on both.
+   * Folding them into one value and guessing from `sending` was the first
+   * attempt: the guess is wrong for one render between the tap and the
+   * action starting, and what renders in that gap is an "Enter" button under
+   * an entry already on its way.
+   *
+   * NEVER SET TOGETHER WITH `chosen`. `decideAutoOpen` answers `open` or
+   * `confirm`, never both, and the only way off this screen is "Outras
+   * promoções", which clears it before the list can set `chosen`.
+   */
+  const [linked, setLinked] = useState<WidgetPromotion | null>(null);
   const [screen, setScreen] = useState(0);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -116,8 +135,13 @@ export function EnterPromotionPanel({
    *
    * THE DECISION ITSELF IS `decideAutoOpen` (promotion-mapping.ts), not
    * written out here, so it is one function a test can call rather than a
-   * branch only a browser exercises. Its three outcomes:
-   *   - `open` — set as `chosen`, exactly what clicking the list entry does;
+   * branch only a browser exercises. Its four outcomes:
+   *   - `open` — set as `chosen`, exactly what clicking the list entry does.
+   *     A promotion with a WALK: consent, then whatever it asks;
+   *   - `confirm` — a promotion with nothing left to ask this listener, which
+   *     has no walk to draw (Block 30d, fix round 3). Set as `linked`, and the
+   *     screen that renders is one button over the rules. NOT `chosen`, and
+   *     not an entry on load: see `linked`'s own comment above;
    *   - `show-list` — an ALREADY-ENTERED match. Do nothing: `chosen` stays
    *     null, and the fall-through render below already shows this exact
    *     promotion, disabled, with `alreadyEntered` on screen — which answers
@@ -142,6 +166,13 @@ export function EnterPromotionPanel({
       if (decision.action === 'open') {
         setChosen(decision.promotion);
         setScreen(0);
+        return;
+      }
+      // Block 30d, fix round 3. A promotion with nothing left to ask: one
+      // screen, one button, no walk. The decision is `decideAutoOpen`'s, not
+      // this effect's, for the reason its docblock gives.
+      if (decision.action === 'confirm') {
+        setLinked(decision.promotion);
         return;
       }
       if (decision.action === 'show-list') return;
@@ -242,6 +273,13 @@ export function EnterPromotionPanel({
    */
   const fastEntry = chosen !== null && needsNoWalk(chosen.steps);
 
+  /**
+   * Whichever promotion the confirmation below is about. Exactly one of these
+   * is ever set (see `linked`'s own comment), so this is a choice between a
+   * value and null rather than between two candidates.
+   */
+  const agreedTo = chosen ?? linked;
+
   if (state.status === 'entered' || state.status === 'declined') {
     return (
       <Shell title={t('enterAPromotion')} onClose={onClose} publicKey={publicKey}>
@@ -255,17 +293,87 @@ export function EnterPromotionPanel({
             chance to read the text is not a thing to withhold, and one branch
             is one thing to keep true. Not on `declined`, where there is no
             agreement to show the terms of. */}
-        {state.status === 'entered' && chosen ? (
+        {state.status === 'entered' && agreedTo ? (
           <>
             <p className="text-sm font-medium">{t('theRulesYouAgreedTo')}</p>
             <div
               className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-md border p-3 text-sm"
               data-testid="widget-promotion-rules"
             >
-              {chosen.rules}
+              {agreedTo.rules}
             </div>
           </>
         ) : null}
+      </Shell>
+    );
+  }
+
+  /**
+   * Block 30d, fix round 3 (D8, D10). THE SCREEN A LINK LANDS ON when the
+   * promotion it named asks this listener nothing.
+   *
+   * Block 19a's contract is that the link opens the widget at the panel it was
+   * minted for. Before this, such a link fell through to the promotion LIST —
+   * `fastEntry` turns the walk off, and the only fast entry point was the list
+   * row's own form, which a link performs no tap on. The listener got a
+   * generic list for a link that named one promotion.
+   *
+   * ONE BUTTON, AND NO CHECKBOX. The rules are on screen and pressing the
+   * button agrees to them, which is the same meaning the list's tap carries
+   * (0268's `web-widget-entry` origin records exactly that on both). A
+   * checkbox here would be the rules screen the owner ruled off this path,
+   * reintroduced for the one arrival that happens to have room for it.
+   *
+   * NOT AN ENTRY ON RENDER. This screen writes nothing until the button is
+   * pressed — see `decideAutoOpen` for why a door that writes a participation
+   * must not fire on a page load.
+   *
+   * THE REFUSAL IS RENDERED WITHOUT A `refusalFor` GUARD, and that is not an
+   * omission. This screen is reachable only from the auto-open effect, which
+   * runs once per mount while `state` is still IDLE, and the only way off it
+   * is the button below or "Outras promoções" (which never brings the listener
+   * back). So any refusal in `state` here was produced by this screen's own
+   * submission; there is no stale one to exclude, and a guard that cannot fire
+   * is a guard nobody can break.
+   */
+  if (linked) {
+    return (
+      <Shell title={linked.name} onClose={() => setLinked(null)} closeLabel={t('otherPromotions')}>
+        <form action={submit} className="flex flex-col gap-3">
+          <input type="hidden" name="publicKey" value={publicKey} />
+          <input type="hidden" name="promotionId" value={linked.id} />
+          <input type="hidden" name="consent" value="on" />
+          <input type="hidden" name="fields" value="{}" />
+          <input type="hidden" name="answers" value="[]" />
+
+          {linked.artUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={linked.artUrl} alt="" className="w-full rounded" />
+          ) : null}
+          <div
+            className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-md border p-3 text-sm"
+            data-testid="widget-promotion-rules"
+          >
+            {linked.rules}
+          </div>
+
+          {state.status === 'refused' ? (
+            <p className="text-sm text-destructive" data-testid="widget-promotion-error">
+              {refusalMessage(t, state.reason)}
+            </p>
+          ) : null}
+
+          <div className="flex gap-2">
+            <Button
+              key="enter-linked"
+              type="submit"
+              disabled={sending}
+              data-testid="widget-promotion-send"
+            >
+              {sending ? t('sending') : t('enterNow')}
+            </Button>
+          </div>
+        </form>
       </Shell>
     );
   }

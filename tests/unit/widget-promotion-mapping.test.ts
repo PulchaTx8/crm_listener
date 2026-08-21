@@ -119,19 +119,38 @@ function promotion(overrides: Partial<WidgetPromotion> = {}): WidgetPromotion {
     artUrl: null,
     thumbUrl: null,
     alreadyEntered: false,
-    steps: [],
+    // Block 30d, fix round 3. `[]` until this round, which is a list no door
+    // ever returns: `whatsapp_conversation_steps` opens every list with
+    // `consent`. It is also the shape that now decides `confirm`, so leaving
+    // it empty would have made every case here turn on a fixture that cannot
+    // occur. A case wanting a WALK says so by adding a field.
+    steps: [{ kind: 'consent' }],
     options: {},
     ...overrides,
   };
 }
 
 describe('decideAutoOpen', () => {
-  it('opens the promotion when it is in the list and not already entered', () => {
-    const target = promotion({ id: 'target' });
+  it('opens the promotion when it is in the list, not already entered, and has a walk', () => {
+    const target = promotion({
+      id: 'target',
+      steps: [{ kind: 'consent' }, { kind: 'field', field: 'city' }],
+    });
     expect(decideAutoOpen([promotion({ id: 'other' }), target], 'target')).toEqual({
       action: 'open',
       promotion: target,
     });
+  });
+
+  /**
+   * Block 30d, fix round 3. A link that names a promotion asking this listener
+   * nothing. `open` would draw a walk that has no screens -- which is how this
+   * arrival fell through to the generic promotion list, breaking the one
+   * promise the link makes.
+   */
+  it('answers confirm for a promotion with nothing left to ask', () => {
+    const target = promotion({ id: 'target', steps: [{ kind: 'consent' }] });
+    expect(decideAutoOpen([target], 'target')).toEqual({ action: 'confirm', promotion: target });
   });
 
   /**
@@ -143,7 +162,23 @@ describe('decideAutoOpen', () => {
    * own `alreadyEntered` label already on screen.
    */
   it('answers show-list rather than opening a promotion already entered', () => {
-    const entered = promotion({ id: 'target', alreadyEntered: true });
+    const entered = promotion({
+      id: 'target',
+      alreadyEntered: true,
+      steps: [{ kind: 'consent' }, { kind: 'field', field: 'city' }],
+    });
+    expect(decideAutoOpen([entered], 'target')).toEqual({ action: 'show-list' });
+  });
+
+  /**
+   * Block 30d, fix round 3. THE ORDER OF THE TWO TESTS INSIDE THE FUNCTION,
+   * pinned: already-entered is asked BEFORE nothing-left-to-ask. Reversed, a
+   * finished no-walk promotion would be offered an entry the door can only
+   * refuse with `already_entered` -- a button that cannot work, on a screen
+   * built to have exactly one that does.
+   */
+  it('still answers show-list for a no-walk promotion this listener has already entered', () => {
+    const entered = promotion({ id: 'target', alreadyEntered: true, steps: [{ kind: 'consent' }] });
     expect(decideAutoOpen([entered], 'target')).toEqual({ action: 'show-list' });
   });
 
