@@ -20,9 +20,17 @@ export type WidgetStep =
        * the step carried the question's id and kind and no words at all, so the
        * panel drew alternatives under nothing.
        *
-       * EMPTY STRING WHEN THE DOOR DID NOT SEND ONE, rather than dropping the
-       * step: a browser holding a bundle from before 0264 would otherwise lose
-       * every question, which turns a missing sentence into a blank walk.
+       * EMPTY STRING WHEN THE DOOR DID NOT SEND ONE. THE DIRECTION THIS GUARDS
+       * IS THE BUNDLE AHEAD OF THE MIGRATION, NOT BEHIND IT: this type already
+       * promises every question step a `prompt`, and a door that has not
+       * applied 0264 yet answers without that key -- not hypothetical here,
+       * since this project has shipped frontend code ahead of its own
+       * migrations three times before (Blocks 13a, 17b, 17c). Without the
+       * coercion, `step.prompt` would be `undefined` at runtime despite the
+       * type declaring it a `string`, and the panel renders it unconditionally.
+       * An OLD bundle meeting THIS door needs no guard at all -- it never
+       * reads `step.prompt`, which is what makes a step gaining a key
+       * backward compatible by construction (design spec D1).
        */
       prompt: string;
     };

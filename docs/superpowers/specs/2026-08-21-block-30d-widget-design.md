@@ -71,7 +71,12 @@ one-to-one with the step, and putting it in the step is what lets the panel draw
 function's answer straight through (`0186:57`) and `enter_promotion` recomputes
 it (`0186:186`). `readSteps` (`promotion-mapping.ts`) drops any step whose shape
 it does not recognise, so a step gaining a key is backward compatible by
-construction — a browser holding an older bundle keeps working.
+construction — a browser holding an older bundle keeps working. The other
+direction is the one this project has actually hit before (Blocks 13a, 17b,
+17c): a bundle built against this shape reaching a door that has not applied
+0264 yet, whose step carries no `prompt` key at all — `readSteps` defaults it
+to an empty string rather than dropping the step, so that deploy order does
+not refuse the entry.
 
 **A question with a blank prompt cannot exist** (0041's CHECK), so the panel has
 no empty-prompt branch to write. It renders `step.prompt` unconditionally.

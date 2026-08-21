@@ -92,10 +92,13 @@ describe('readSteps', () => {
     ]);
   });
 
-  // The door and the browser ship separately: a bundle held from before 0264
-  // must not start dropping every question because a key it never sent is
-  // absent. Dropping the step would blank the walk, which is worse than a
-  // question drawn without its text.
+  // THE DEPLOY ORDER THAT HAS BURNED THIS PROJECT BEFORE (Blocks 13a, 17b,
+  // 17c): frontend code landing ahead of its migration. This module already
+  // promises every question step a `prompt`; a door that has not applied
+  // 0264 yet sends a step with no such key. The step must still be pushed,
+  // not dropped for lacking one -- the door's own missing_answers check still
+  // expects an answer to this question regardless of whether 0264 has run,
+  // so a browser that dropped the step would refuse the entry forever.
   it('keeps a question that carries no prompt', () => {
     const steps = readSteps([{ kind: 'question', questionId: 'q1', questionKind: 'ESSAY' }]);
 
