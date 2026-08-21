@@ -557,12 +557,13 @@ export function EnterPromotionPanel({
                *
                * `marketingConsent` IS THE ONE FIELD THE WALK POSTS AND THIS
                * DOES NOT, because its checkbox lives on the consent screen and
-               * this path draws none. The door reads its absence as unticked
-               * and writes a `whatsapp_marketing` decline for a listener who
-               * has no row yet -- a question nobody was asked, answered no.
-               * That is recorded and left alone rather than fixed here: 0268's
-               * own D10 note in the marketing block says why, and it is the
-               * owner's to settle.
+               * this path draws none. THE DOOR DOES NOT READ THAT ABSENCE AS A
+               * DECLINE: 0268 writes no `whatsapp_marketing` row at all on this
+               * path for a listener who has none, on the owner's ruling of
+               * 2026-08-21 (fix round 1). Entering agrees to the RULES -- the
+               * act carries that meaning, which is what the tap above is -- and
+               * says nothing whatever about marketing, so there is nothing to
+               * record and the listener stays askable on their next walk.
                *
                * THE TWO KEYS, for the reason the send/next pair further up
                * this file spells out at length: two elements sharing a slot

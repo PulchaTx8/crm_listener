@@ -410,12 +410,72 @@ value of its own, so a row produced by the act of entering is distinguishable
 from one produced by a click, for ever, by reading the row.
 
 **And `promotion_id` gets filled — on both paths.** The column exists for exactly
-this (`0032`'s comment: "recording which promotion's rules the Member agreed
-to") and the `rules` insert leaves it null. The proof that this is an oversight
-rather than a policy is **in the same function**: the marketing consent Block 29c
-added a hundred lines below (`0234:254`, `0234:269`) does fill it. A `rules`
-consent that does not name the promotion cannot defend anything, and that matters
-more now that no one clicks.
+this and the `rules` insert leaves it null. `0032`'s column comment, quoted from
+the running database rather than from memory, reads in full:
+
+> No foreign key yet: public.promotions does not exist. Expected to be set only
+> when consent_type = 'rules'.
+
+**This spec quoted a paraphrase of that sentence inside quotation marks** — as
+"recording which promotion's rules the Member agreed to" — until Task 9 dumped
+the column comment and found no such words in 0032. The real text is the stronger
+of the two for this decision ("only when consent_type = 'rules'" names this row
+and no other), which is exactly why the substitution was cheap to make and hard
+to notice. Quotation marks are an invitation to trust a sentence without opening
+the file, and this block has now been caught by that failure mode more than once;
+a quoted sentence in this document is a sentence somebody read from the source.
+
+**And half of that real comment is itself stale**: `member_consents_promotion_fk`
+→ `promotions(id)` exists today (`\d public.member_consents`), so "No foreign key
+yet" describes a schema that has moved on. What is still true is the second
+sentence, which is the half this decision rests on. Filling the column therefore
+lands against a live foreign key, on a promotion the door has already validated.
+
+The proof that the null was an oversight rather than a policy is **in the same
+function**: the marketing consent Block 29c added below it (`0234`) does fill it,
+for a `consent_type` that comment did not have in mind at all. A `rules` consent
+that does not name the promotion cannot defend anything, and that matters more
+now that no one clicks.
+
+### D10a — And the marketing consent is **not** written without a screen
+
+The owner's ruling of 2026-08-21, fix round 1. The two halves of this decision
+family look contradictory until the principle is stated, so it is stated here:
+**the act carries the meaning, or there is nothing to record.**
+
+- **Entering IS agreeing to the rules.** Choosing a promotion is choosing to take
+  part in it under its published terms, and the rules text is the terms. So the
+  `rules` row is written on the fast path, and the only thing it needs is an
+  `origin` saying which act produced it.
+- **Entering is NOT declining marketing.** Nothing about taking part in a
+  promotion says anything about wanting messages from the Station afterwards. The
+  fast path draws no consent screen, so the marketing checkbox is never shown and
+  the panel posts its unticked default — and `widget_enter_promotion`'s arm B was
+  turning that default into `granted = false`.
+
+That row is not inert. `members_marketing_eligible_bulk` (0229) reads the latest
+`whatsapp_marketing` row per (member, company), and Block 29d's campaigns pick
+their audience through it — so a listener who took the fast path would have been
+on file as having refused something nobody offered them, and this block would
+have been what put them there.
+
+So on the fast path the door writes **no `whatsapp_marketing` row at all** when
+the listener has none, and leaves an existing row untouched. Absence is already
+what this door's own existence check reads as "not asked yet", which is the truth
+here; the listener stays askable on their next walk. **Arm A is not gated** — a
+ticked box still writes `true` on any path, because a genuine opt-in must never be
+dropped by a branch about screens.
+
+Two consequences worth recording rather than rediscovering:
+
+- The four cases pinning arms B and C in `42_widget_promotions.test.sql` were
+  reaching that branch **on the fast path by accident**, because their promotion
+  declared no requested fields. Their fixtures gained one (and two different
+  ones, since two of their listeners enter both promotions); their assertions did
+  not change. They were written to pin the marketing rule and they still do.
+- The three consent-only promotions in `tests/e2e/widget.spec.ts` needed the same
+  treatment for the same reason, one layer up: a consent-only promotion is now a
+  promotion with no consent screen.
 
 ---
 
@@ -435,7 +495,7 @@ Supabase runs each migration in its own transaction and a value added by
 | 0265 | `listener_locale.sql` | the column, its door, and `widget_frame_context` returning it (D6, D7) |
 | 0266 | `template_purpose_participation.sql` | four enum values — **and nothing else** |
 | 0267 | `whatsapp_fast_entry.sql` | `ingest_whatsapp_event` takes the entry when nothing is left to ask (D8, D9) — and writes the canonical phone, closing D4 |
-| 0268 | `widget_fast_entry.sql` | `enter_promotion`'s fast path and the consent row (D8, D10) |
+| 0268 | `widget_fast_entry.sql` | `enter_promotion`'s fast path and the consent row (D8, D10) — and, in fix round 1, the marketing row it must NOT write (D10a) |
 
 **Every redefinition copies the LIVE definition forward.** Every function this
 block rewrites has been redefined since it was introduced, and **the first draft

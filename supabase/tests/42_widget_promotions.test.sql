@@ -1,5 +1,5 @@
 begin;
-select plan(42);
+select plan(45);
 
 -- Block 17c. The two doors behind the widget's second button.
 --
@@ -402,10 +402,18 @@ select is(
 -- recorded rather than merely accepted -- plus the ACL a DROP + CREATE
 -- migration (0234) had to reissue by hand.
 --
--- A fresh promotion with no requested fields and no questions: the marketing
--- write is orthogonal to what a promotion asks, and the point of these
--- assertions is the consent row, not the entry mechanics 4-9 above already
--- cover.
+-- TWO FRESH PROMOTIONS, EACH ASKING FOR ONE FIELD. They asked for nothing at
+-- all until Block 30d's fix round 1, and that had stopped meaning what it
+-- looks like it means: since 0268 a promotion asking nothing is the FAST PATH,
+-- which shows no marketing checkbox and therefore writes no decline. Every
+-- assertion below is about a listener who WAS shown the box, so the promotion
+-- has to be one that draws the consent screen -- which is what a requested
+-- field makes it. The fixtures changed; not one assertion did.
+--
+-- TWO DIFFERENT FIELDS, city AND address, because members 434 and 436 enter
+-- BOTH: with one shared field, filling it on 430 would leave 435 asking that
+-- listener nothing, and the second entry would take the fast path exactly
+-- where these cases need a walk.
 -- ---------------------------------------------------------------------------
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
@@ -414,7 +422,7 @@ values
   ('00000000-0000-0000-0000-000000000430', '00000000-0000-0000-0000-000000000401',
    '00000000-0000-0000-0000-000000000402', 'Promo consentimento de marketing',
    now() - interval '1 day', now() + interval '7 days',
-   false, '{}'::public.promotion_requested_field[],
+   false, array['city']::public.promotion_requested_field[],
    'Regulamento de uma promoção simples.', true),
   -- A SECOND promotion, needed to model a repeat participant honestly: a
   -- second entry against 430 by the same member would be refused
@@ -425,8 +433,18 @@ values
   ('00000000-0000-0000-0000-000000000435', '00000000-0000-0000-0000-000000000401',
    '00000000-0000-0000-0000-000000000402', 'Promo consentimento de marketing 2',
    now() - interval '1 day', now() + interval '7 days',
+   false, array['address']::public.promotion_requested_field[],
+   'Regulamento de outra promoção simples.', true),
+  -- Block 30d, fix round 1. THE ONE THAT ASKS NOTHING, kept apart from the two
+  -- above precisely because it takes the other path: no requested field and no
+  -- question means whatsapp_conversation_steps answers `consent` alone, the
+  -- panel draws no screen, and the door writes no marketing row for a listener
+  -- who has none.
+  ('00000000-0000-0000-0000-000000000437', '00000000-0000-0000-0000-000000000401',
+   '00000000-0000-0000-0000-000000000402', 'Promo que nao pergunta nada',
+   now() - interval '1 day', now() + interval '7 days',
    false, '{}'::public.promotion_requested_field[],
-   'Regulamento de outra promoção simples.', true);
+   'Regulamento de uma promoção que não pergunta nada.', true);
 
 insert into public.members (id, organization_id, full_name, phone) values
   ('00000000-0000-0000-0000-000000000431', '00000000-0000-0000-0000-000000000401',
@@ -440,7 +458,12 @@ insert into public.members (id, organization_id, full_name, phone) values
   ('00000000-0000-0000-0000-000000000434', '00000000-0000-0000-0000-000000000401',
    'Marketing Override Listener', '+5511999992224'),
   ('00000000-0000-0000-0000-000000000436', '00000000-0000-0000-0000-000000000401',
-   'Marketing Silent Listener', '+5511999992226');
+   'Marketing Silent Listener', '+5511999992226'),
+  -- Block 30d, fix round 1. The listener nobody asks: their promotion draws no
+  -- consent screen at all, so they are the one case where the door must write
+  -- neither a true nor a false.
+  ('00000000-0000-0000-0000-000000000438', '00000000-0000-0000-0000-000000000401',
+   'Marketing Unasked Listener', '+5511999992228');
 
 insert into public.member_company_links (member_id, company_id, organization_id) values
   ('00000000-0000-0000-0000-000000000431', '00000000-0000-0000-0000-000000000402',
@@ -452,6 +475,8 @@ insert into public.member_company_links (member_id, company_id, organization_id)
   ('00000000-0000-0000-0000-000000000434', '00000000-0000-0000-0000-000000000402',
    '00000000-0000-0000-0000-000000000401'),
   ('00000000-0000-0000-0000-000000000436', '00000000-0000-0000-0000-000000000402',
+   '00000000-0000-0000-0000-000000000401'),
+  ('00000000-0000-0000-0000-000000000438', '00000000-0000-0000-0000-000000000402',
    '00000000-0000-0000-0000-000000000401');
 
 -- 24-25. A ticked box: the entry succeeds and a granted row lands, stamped
@@ -460,7 +485,7 @@ select is(
   (select public.widget_enter_promotion(
      'pw_promostationa012345678', '00000000-0000-0000-0000-000000000431',
      '00000000-0000-0000-0000-000000000430', true,
-     '{}'::jsonb, '[]'::jsonb, true) ->> 'ok'),
+     '{"city": "Santos"}'::jsonb, '[]'::jsonb, true) ->> 'ok'),
   'true', 'entering with the marketing box ticked still succeeds');
 
 select is(
@@ -478,7 +503,7 @@ select is(
   (select public.widget_enter_promotion(
      'pw_promostationa012345678', '00000000-0000-0000-0000-000000000432',
      '00000000-0000-0000-0000-000000000430', true,
-     '{}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
+     '{"city": "Santos"}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
   'true', 'entering with the marketing box explicitly unticked still succeeds');
 
 select is(
@@ -495,7 +520,7 @@ select is(
   (select public.widget_enter_promotion(
      'pw_promostationa012345678', '00000000-0000-0000-0000-000000000433',
      '00000000-0000-0000-0000-000000000430', true,
-     '{}'::jsonb, '[]'::jsonb) ->> 'ok'),
+     '{"city": "Santos"}'::jsonb, '[]'::jsonb) ->> 'ok'),
   'true', 'the pre-existing six-argument call is still accepted');
 
 select is(
@@ -535,14 +560,14 @@ select is(
   (select public.widget_enter_promotion(
      'pw_promostationa012345678', '00000000-0000-0000-0000-000000000434',
      '00000000-0000-0000-0000-000000000430', true,
-     '{}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
+     '{"city": "Santos"}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
   'true', 'F23 setup: the first entry, unticked, still succeeds');
 
 select is(
   (select public.widget_enter_promotion(
      'pw_promostationa012345678', '00000000-0000-0000-0000-000000000434',
      '00000000-0000-0000-0000-000000000435', true,
-     '{}'::jsonb, '[]'::jsonb, true) ->> 'ok'),
+     '{"address": "Rua A, 1"}'::jsonb, '[]'::jsonb, true) ->> 'ok'),
   'true', 'F23 arm A: a later TICKED entry against a different promotion still succeeds');
 
 select is(
@@ -569,14 +594,14 @@ select is(
   (select public.widget_enter_promotion(
      'pw_promostationa012345678', '00000000-0000-0000-0000-000000000436',
      '00000000-0000-0000-0000-000000000430', true,
-     '{}'::jsonb, '[]'::jsonb, true) ->> 'ok'),
+     '{"city": "Santos"}'::jsonb, '[]'::jsonb, true) ->> 'ok'),
   'true', 'F23 setup: the first entry, ticked, still succeeds');
 
 select is(
   (select public.widget_enter_promotion(
      'pw_promostationa012345678', '00000000-0000-0000-0000-000000000436',
      '00000000-0000-0000-0000-000000000435', true,
-     '{}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
+     '{"address": "Rua B, 2"}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
   'true', 'F23 arm C: a later UNTICKED entry against a different promotion still succeeds');
 
 select is(
@@ -615,6 +640,46 @@ select ok(
   not has_function_privilege('public',
     'public.widget_enter_promotion(text,uuid,uuid,boolean,jsonb,jsonb,boolean)', 'EXECUTE'),
   'and PUBLIC holds nothing -- the DROP wiped the old ACL and 0234 reasserts it explicitly');
+
+-- ---------------------------------------------------------------------------
+-- BLOCK 30d, FIX ROUND 1 (D10). NOT ASKED IS NOT DECLINED.
+--
+-- APPENDED AFTER THE ACL BLOCK RATHER THAN BESIDE THE THREE-WAY RULE IT
+-- BELONGS WITH, and that is about this file rather than about these cases:
+-- every header above names an assertion RANGE, so inserting three cases in the
+-- middle would silently falsify "39-42" and nothing would go red. 73_fast_entry
+-- has already had to write that lesson down once. Placed last, every existing
+-- header stays true; this one names its subject and no number at all.
+--
+-- THE PROMOTION IS THE ONE THAT ASKS NOTHING, so the panel draws no consent
+-- screen and no marketing checkbox with it. The listener has no
+-- whatsapp_marketing row, which is arm B's own precondition -- before the fix
+-- this call left them on file as having declined.
+-- ---------------------------------------------------------------------------
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000438',
+     '00000000-0000-0000-0000-000000000437', true,
+     '{}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
+  'true', 'a promotion that asks nothing still enters the listener');
+
+-- THE CONTROL FOR THE CASE BELOW. Without it a zero count could mean the fast
+-- path was never taken -- a promotion that quietly started asking for
+-- something would walk, write a decline, and this file would report a
+-- different failure than the one it had.
+select is(
+  (select origin from public.member_consents
+    where member_id = '00000000-0000-0000-0000-000000000438'
+      and consent_type = 'rules'),
+  'web-widget-entry',
+  'and it went by the path where nobody is shown a screen, which the rules consent records');
+
+select is(
+  (select count(*) from public.member_consents
+    where member_id = '00000000-0000-0000-0000-000000000438'
+      and consent_type = 'whatsapp_marketing'),
+  0::bigint,
+  'and NO whatsapp_marketing row is written: the box was never shown, so there is no answer to record -- entering agrees to the rules and says nothing about marketing');
 
 select * from finish();
 rollback;

@@ -1652,6 +1652,21 @@ test('a promotion that asks nothing is entered from the list, with no rules scre
   expect(consents?.[0]?.promotion_id, 'and it names the promotion whose rules those were').toBe(
     fastPromotionId,
   );
+
+  // Block 30d, fix round 1. AND NOTHING AT ALL ABOUT MARKETING. This listener
+  // was never shown the checkbox, so a `whatsapp_marketing` row of either
+  // value would be an answer they did not give — and a `false` one is read as
+  // a refusal by 0229's eligibility and by Block 29d's campaign audiences.
+  // Asserted through the browser rather than only in pgTAP because the
+  // unticked default is posted by THIS panel: the door's gate and the screen
+  // that has no box have to meet somewhere, and this is the only place they do.
+  const { data: marketing } = await admin
+    .from('member_consents')
+    .select('granted, origin')
+    .eq('member_id', memberId)
+    .eq('consent_type', 'whatsapp_marketing');
+
+  expect(marketing, 'a listener nobody asked is on file as neither yes nor no').toHaveLength(0);
 });
 
 /**

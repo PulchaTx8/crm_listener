@@ -36,9 +36,21 @@
 -- AND THE COMMENTS THIS CHANGE FALSIFIED ARE FIXED IN PLACE. The
 -- whatsapp_marketing block below explained itself in terms of a box that is
 -- always shown and a `rules` row that never names its promotion; neither is
--- true after this migration. Its logic is untouched -- the gap the fast path
--- opens in it is named there and left for the owner, because closing it would
--- rewrite the three-way rule 42_widget_promotions.test.sql pins.
+-- true after this migration.
+--
+-- FIX ROUND 1 ALSO GATED THAT BLOCK'S ARM B, on the owner's ruling of
+-- 2026-08-21. The fast path shows no marketing checkbox, so the unticked
+-- default it posts was landing as `granted = false` -- a decline recorded for
+-- a question nobody was asked, feeding 0229's eligibility and Block 29d's
+-- campaign audiences. It now writes NOTHING when that listener has no row yet.
+-- This is the rules row's own principle read the other way: entering IS
+-- agreeing to the rules, and entering is NOT declining marketing.
+--
+-- THE FOUR CASES IN 42_widget_promotions.test.sql THAT PIN ARMS B AND C were
+-- reaching this branch on the fast path by accident -- their promotion asked
+-- nothing -- so their FIXTURES gained a requested field and their walks now
+-- fill it. Their assertions are untouched, which is the point: they were
+-- written to pin the marketing rule and they still do.
 
 create or replace function public.widget_enter_promotion(
   p_public_key         text,
@@ -235,18 +247,28 @@ begin
   -- that never runs). Every participation reaches here, so this is where
   -- whatsapp_marketing is asked and answered.
   --
-  -- BLOCK 30d, D10 NARROWED THAT LAST SENTENCE, AND DID NOT CLOSE WHAT IT
-  -- OPENS. Every participation still reaches this code -- but on the fast path
-  -- (v_fast, above) the panel draws no consent screen, so the box is never
-  -- SHOWN: it posts the unticked default and this block answers a question
-  -- nobody was asked. What lands is granted = false, which is true as a fact --
-  -- consent was not given -- and misleading as a record, because arm B below
-  -- reads a false row as "asked once, and said no". IT IS LEFT AS IT IS, and
-  -- not because the case is rare: the cases pinning arms B and C in
-  -- 42_widget_promotions.test.sql enter a promotion that asks nothing, so they
-  -- run on this very path. Whether a listener who was never asked should be
-  -- recorded at all is a product question the owner has not been put, and
-  -- deciding it here would rewrite a rule those cases exist to hold still.
+  -- BLOCK 30d, D10 NARROWED THAT LAST SENTENCE, AND ARM B BELOW IS GATED
+  -- BECAUSE OF IT. Every participation still reaches this code -- but on the
+  -- fast path (v_fast, above) the panel draws no consent screen, so the box is
+  -- never SHOWN: it posts the unticked default. Writing granted = false from
+  -- that would be true as a fact and false as a record, because everything
+  -- downstream reads a false row as an answer somebody gave: it is the row
+  -- 0229's eligibility reads latest-row-wins, and Block 29d's campaigns select
+  -- their audience through it. A listener who took the fast path would be on
+  -- file as having refused something nobody offered them.
+  --
+  -- THE RULING (2026-08-21, fix round 1) IS THE RULES ROW'S OWN PRINCIPLE
+  -- POINTING THE OTHER WAY. The `rules` consent above is written without a
+  -- click because ENTERING IS AGREEING TO THE RULES -- the act carries the
+  -- meaning, which is why it needs only an origin saying which act it was.
+  -- Entering is not declining marketing. That act carries no such meaning, so
+  -- there is nothing to record, and ABSENCE is exactly what this block's own
+  -- existence check already reads as "not asked yet". The truthful row here is
+  -- no row.
+  --
+  -- ARM A IS NOT GATED. A ticked box still writes true on any path: the panel
+  -- cannot tick one here, but a genuine opt-in arriving through this parameter
+  -- must never be dropped by a branch about screens.
   --
   -- FIX ROUND 1, F23 (CRITICAL). THE FIRST VERSION WROTE AN UNCONDITIONAL ROW
   -- PER ENTRY AND REACHED LOGIC THAT SILENTLY REVOKES. The box renders
@@ -261,12 +283,22 @@ begin
   --                                      harmless and it is how somebody
   --                                      changes their mind, even from a
   --                                      prior explicit decline.
-  --   UNTICKED, no row exists yet    -> write false. This is what makes
-  --                                      "asked once" true ON THE WALK: a
-  --                                      decline has to land somewhere or the
-  --                                      listener is asked forever. On the fast
-  --                                      path nothing was asked at all -- see
-  --                                      the D10 note above.
+  --   UNTICKED, no row exists yet,
+  --   AND THE LISTENER WAS ASKED       -> write false. This is what makes
+  --                                      "asked once" true: a decline has to
+  --                                      land somewhere or the listener is
+  --                                      asked forever. "Was asked" is `not
+  --                                      v_fast`: the fast path shows no box,
+  --                                      so it has no answer to write -- see
+  --                                      the D10 ruling above.
+  --   UNTICKED, no row, FAST PATH      -> write NOTHING, and this is a
+  --                                      different silence from the arm below
+  --                                      rather than the same one: there, an
+  --                                      earlier answer must not be
+  --                                      overwritten; here, there was never a
+  --                                      question. Both leave the listener
+  --                                      askable on their next walk, which is
+  --                                      the outcome that is true in each case.
   --   UNTICKED, a row already exists -> write NOTHING. Silence must never
   --                                      revoke -- an unticked box on a
   --                                      second, third, ... entry says
@@ -334,7 +366,7 @@ begin
            and consent_type = 'whatsapp_marketing'
       ) into v_marketing_row_exists;
 
-      if not v_marketing_row_exists then
+      if not v_marketing_row_exists and not v_fast then
         insert into public.member_consents
           (organization_id, member_id, company_id, consent_type, granted, origin,
            promotion_id, recorded_by)
@@ -354,7 +386,7 @@ end;
 $$;
 
 comment on function public.widget_enter_promotion is
-  'Block 17c. Records an entry made from the Station''s own website. Refuses by name -- unknown_installation, unknown_listener, listener_anonymized, promotion_closed, missing_answers, already_entered, refused -- so the widget can say which happened. THE STEP LIST IS RECOMPUTED HERE rather than trusted from the payload: the screen is not the authority on what a promotion asks, and a promotion edited mid-walk would otherwise be answered wrongly. Since 0186 it restates THREE of the list''s conditions rather than two -- web_enabled, rules present, and no non-ESSAY question left without alternatives -- so a browser holding a list drawn before the options were deleted is answered promotion_closed rather than blamed with missing_answers for a question nobody could see. Declining writes promotion_refusals stamped WEB and nothing else. Agreeing writes a `rules` consent row, which is a deliberate divergence from complete_conversation (0071) and from ingest_whatsapp_event''s fast path (0267), both of which record none. Since 0268 (Block 30d, D10) that row NAMES THE PROMOTION -- the column 0032 declared for exactly this consent_type -- and its origin says which path produced it: `web-widget` when the listener was shown the rules and ticked, `web-widget-entry` when the recomputed step list held no field and no question, in which case the panel draws no rules screen at all and choosing the promotion is the agreement. Since Block 29c (Task 9, fix round 1 F23) it ALSO writes a `whatsapp_marketing` consent row from `p_marketing_consent`, by a three-way rule rather than a blanket insert: ticked always writes true (a re-consent is harmless); unticked writes false only when no whatsapp_marketing row exists yet for (member, company); unticked writes NOTHING when one already does, because a repeat entry''s default-unticked box must never silently revoke an earlier opt-in (eligibility, 0229, reads the latest row). On the `web-widget-entry` path that box is never shown, so the false arm answers a question nobody was asked -- recorded in the function body, not closed here. Written ONLY after the participation above is confirmed VALID, isolated in its own exception-catching sub-block so a failure there cannot undo an entry that already succeeded (a WARNING names the participation and SQLERRM instead). origin `widget` pairs with record_conversation_marketing_answer''s (0231) `conversation`; neither door writes through record_member_consent (0034), which is unreachable for a service-role caller with no auth.uid(). Granted to service_role only.';
+  'Block 17c. Records an entry made from the Station''s own website. Refuses by name -- unknown_installation, unknown_listener, listener_anonymized, promotion_closed, missing_answers, already_entered, refused -- so the widget can say which happened. THE STEP LIST IS RECOMPUTED HERE rather than trusted from the payload: the screen is not the authority on what a promotion asks, and a promotion edited mid-walk would otherwise be answered wrongly. Since 0186 it restates THREE of the list''s conditions rather than two -- web_enabled, rules present, and no non-ESSAY question left without alternatives -- so a browser holding a list drawn before the options were deleted is answered promotion_closed rather than blamed with missing_answers for a question nobody could see. Declining writes promotion_refusals stamped WEB and nothing else. Agreeing writes a `rules` consent row, which is a deliberate divergence from complete_conversation (0071) and from ingest_whatsapp_event''s fast path (0267), both of which record none. Since 0268 (Block 30d, D10) that row NAMES THE PROMOTION -- the column 0032 declared for exactly this consent_type -- and its origin says which path produced it: `web-widget` when the listener was shown the rules and ticked, `web-widget-entry` when the recomputed step list held no field and no question, in which case the panel draws no rules screen at all and choosing the promotion is the agreement. Since Block 29c (Task 9, fix round 1 F23) it ALSO writes a `whatsapp_marketing` consent row from `p_marketing_consent`, by a three-way rule rather than a blanket insert: ticked always writes true (a re-consent is harmless); unticked writes false only when no whatsapp_marketing row exists yet for (member, company); unticked writes NOTHING when one already does, because a repeat entry''s default-unticked box must never silently revoke an earlier opt-in (eligibility, 0229, reads the latest row). THE FALSE ARM IS GATED ON THE PATH (fix round 1, the owner''s ruling of 2026-08-21): on `web-widget-entry` no box is shown, so a listener with no row yet gets NO ROW rather than a decline they were never asked for -- absence is what this door already reads as "not asked", and entering agrees to the RULES without saying anything at all about marketing. A ticked box still writes true on either path. Written ONLY after the participation above is confirmed VALID, isolated in its own exception-catching sub-block so a failure there cannot undo an entry that already succeeded (a WARNING names the participation and SQLERRM instead). origin `widget` pairs with record_conversation_marketing_answer''s (0231) `conversation`; neither door writes through record_member_consent (0034), which is unreachable for a service-role caller with no auth.uid(). Granted to service_role only.';
 
 -- create or replace does not reset privileges, so neither statement below
 -- changes anything today. They are restated for the reason 0171 states them:
