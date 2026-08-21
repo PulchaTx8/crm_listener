@@ -5111,6 +5111,15 @@ export type Database = {
         }
         Returns: Json
       }
+      get_promotions_geography: {
+        Args: {
+          p_company_ids: string[]
+          p_from?: string
+          p_preset?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_company_access_for: {
         Args: { p_company_id: string; p_user_id: string }
@@ -5651,6 +5660,17 @@ export type Database = {
         Returns: {
           answered_correctly: boolean
           participation_id: string
+        }[]
+      }
+      promotion_show_schedule: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          band: number
+          ends_at: string
+          show_id: string
+          show_name: string
+          starts_at: string
+          weekday: number
         }[]
       }
       promotion_write_error: {

@@ -32,6 +32,13 @@ export interface ParticipationSearchParams {
   answered?: string;
   /** Block 6c: the option somebody chose. ANDs with the above. */
   option?: string;
+  /**
+   * Block 30e, item 18. The calendar day, in the Station's zone, whose band
+   * bounds the list — and the `show_schedules.band` marker chosen on it. They
+   * replace `from`/`to` whenever the selected promotion has a Programme.
+   */
+  day?: string;
+  band?: string;
   after?: string;
   before?: string;
 }
@@ -116,6 +123,17 @@ export interface ParticipationListState {
    * one needs a permission the rest of the screen does not — see ./access.ts.
    */
   search?: string;
+  /**
+   * Block 30e, D8. The day and the band an operator chose, when the selected
+   * promotion belongs to a Programme.
+   *
+   * They are what the URL carries; `from` and `to` above are what the SERVER
+   * derives from them and what every consumer reads — the list, the draw hat and
+   * the send-list filters alike. A pasted link therefore still means "Saturday's
+   * morning show" tomorrow, which a pair of instants would not.
+   */
+  day?: string;
+  bandMarker?: number;
 }
 
 export interface ParticipationCursor {
@@ -174,6 +192,11 @@ export function parseParticipationListState(
     answeredCorrectly:
       raw.answered === 'yes' ? true : raw.answered === 'no' ? false : undefined,
     optionId: raw.option?.trim() || undefined,
+    // Block 30e, D8. Nothing is derived here: this function is pure, and turning
+    // a band into two instants needs both the Station's zone and the Programme's
+    // schedule, neither of which a URL carries.
+    day: /^\d{4}-\d{2}-\d{2}$/.test(raw.day?.trim() ?? '') ? raw.day?.trim() : undefined,
+    bandMarker: /^\d+$/.test(raw.band?.trim() ?? '') ? Number(raw.band?.trim()) : undefined,
   };
 }
 
@@ -198,6 +221,9 @@ export function hasActiveParticipationFilters(state: ParticipationListState): bo
       state.source ||
       state.from ||
       state.to ||
+      // Block 30e: a day chosen inside a Programme window is a filter like any
+      // other, and "Clear filters" has to be able to undo it.
+      state.day ||
       state.search ||
       // Block 6c's two. `!== undefined` rather than truthy, because `false` is a
       // filter here — "answered wrongly" — and reading it as "not set" would
@@ -230,8 +256,16 @@ export function participationsHref(
   if (state.promotionId) query.set('promotion', state.promotionId);
   if (state.status !== DEFAULT_PARTICIPATION_STATUS) query.set('status', state.status);
   if (state.source) query.set('source', state.source);
-  if (state.from) query.set('from', state.from);
-  if (state.to) query.set('to', state.to);
+  // Block 30e, D8. The day and the band REPLACE the instants rather than joining
+  // them. Writing both would put a stale `from` beside the band that produced it,
+  // and the two would disagree the first time either changed alone.
+  if (state.day) {
+    query.set('day', state.day);
+    if (state.bandMarker !== undefined) query.set('band', String(state.bandMarker));
+  } else {
+    if (state.from) query.set('from', state.from);
+    if (state.to) query.set('to', state.to);
+  }
   if (state.search) query.set('q', state.search);
   if (state.answeredCorrectly !== undefined) {
     query.set('answered', state.answeredCorrectly ? 'yes' : 'no');

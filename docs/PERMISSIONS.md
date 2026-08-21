@@ -217,7 +217,7 @@ file at the `is_owner_of_company` assertion and nowhere else.
 exist and are gated — and stops there, because pgTAP runs as superuser with a
 null `auth.uid()` where RLS never applies.
 
-## Programmes are gated on music, and the screen has moved twice (Block 18 → 27 → 30c)
+## Programmes are gated on music, and the mismatch now has three surfaces (Blocks 18 → 27 → 30c → 30e)
 
 `/shows` now lives under **Promotions** in the sidebar, directly after
 Pickups — its **third section in twelve blocks**. Audience filed it in Block
@@ -234,7 +234,7 @@ follows `shows` exactly. So a member who administers Promotions and holds
 nothing in music sees the **Programmes** link and finds nothing behind it.
 
 **Block 30c found a second surface of the same mismatch**, during its own
-Task 4 review. `listShowOptions` (`src/services/shows.ts:254-266`) — which
+Task 4 review. `listShowOptions` (`src/services/shows.ts`) — which
 fills the Programme combobox on a promotion's own record (item 17) — reads
 through the caller's own client, so `shows_select_music_view`'s `music.view`
 gate applies there too. The same member who cannot open `/shows` also sees
@@ -257,11 +257,32 @@ backwards.** Two fixes were weighed for Block 30c and neither is this block:
   whoever administers the catalogue and holds `music.view` today. It trades
   the mismatch for a different one rather than closing it.
 
-The mismatch is recorded in three places that a reader will actually reach:
-`src/lib/auth/shell.ts` beside the nav entry (both surfaces), the header of
-`src/app/(app)/shows/page.tsx`, and this section. Closing it is a block of its
-own, and it should start by deciding what happens to roles that already
-exist.
+**Block 30e found the third surface, and routed one read around the gate
+rather than moving it.** Item 18 filters Participations by the band of the
+Programme its promotion belongs to, so that screen has to read a schedule —
+and the operator who works it need not hold anything in music. Left to RLS the
+band combo would be **permanently empty for exactly them**, which is the
+second surface's failure again: it does not say "you may not see this", it
+says "this Programme never airs".
+
+So `promotion_show_schedule` (`0269`) is `SECURITY
+DEFINER` and re-checks **`participations.view`** at the promotion's own
+Station. It returns that Programme's schedule rows and nothing else — no
+listing, no search, no write — and the pgTAP file proves the same caller still
+reads zero rows from `shows` directly. One read got past the gate; the section
+did not move.
+
+The three surfaces are now: the **screen** (a dead link), the **combobox** on a
+promotion's record (an empty list that looks like no data), and the
+**band combo** on Participations (which would have been the same empty list,
+and is not). The mismatch is recorded where a reader will actually reach it:
+`src/lib/auth/shell.ts` beside the nav entry, the header of
+`src/app/(app)/shows/page.tsx`, the header of
+`supabase/migrations/0269_promotion_show_schedule.sql`, and this section.
+
+Closing it is a block of its own, and it should start by deciding what happens
+to roles that already exist. **The fourth surface should be the one that
+decides it** rather than the one that opens a fourth door.
 
 ## The listener card is governed by `members.view`, not a new permission (Block 30a)
 

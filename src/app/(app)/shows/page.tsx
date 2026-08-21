@@ -6,17 +6,18 @@ import { logger } from '@/lib/logger';
 import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { decodeCursor } from '@/lib/keyset';
 import { parseRecordParam, SHOW_TABS } from '@/lib/record-params';
-import { SHOW_SEARCH_MAX_LENGTH, listShowsPage } from '@/services/shows';
-import type { ShowListPage } from '@/services/shows';
+import { SHOW_SEARCH_MAX_LENGTH, listShows, listShowsForWeek } from '@/services/shows';
+import type { ShowList } from '@/services/shows';
+import { isoWeekStart, layOutWeek, weekDays } from '@/lib/shows/week-grid';
 import { STATION_SEARCH_MAX_LENGTH, listCompanyAccess } from '../inventory/station-access';
 import { getMusicPermissions } from '../music/permissions';
 import { StationSearchForm } from '../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 import { ShowsFilters } from './shows-filters';
 import { ShowsGrid } from './shows-grid';
-import { parseShowCursor, parseShowListState, showHref } from './list-params';
+import { ScheduleBoard } from './schedule-board';
+import { parseShowListState } from './list-params';
 import type { ShowSearchParams } from './list-params';
 
 /**
@@ -86,19 +87,95 @@ export default async function ShowsPage({
 
   const selected = viewable.find((c) => c.id === params.companyId) ?? first;
   const state = parseShowListState(params, selected.id);
-  const cursorParam = parseShowCursor(params);
 
-  let page: ShowListPage;
+  /**
+   * WHOSE TODAY, decided once and in the Station's zone.
+   *
+   * Every date this screen draws — the week it opens on, the column it marks,
+   * the minute the now-line sits at — is a wall-clock question, and
+   * `companies.timezone` is whose wall it is. The trap is the one
+   * `shows_on_air` (0175) documents on itself: read from the server's own clock
+   * a schedule passes every suite run in the afternoon and is wrong at 21:00.
+   */
+  const at = new Date();
+  const stationToday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: selected.timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(at);
+  const stationClock = new Intl.DateTimeFormat('en-GB', {
+    timeZone: selected.timezone,
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(at);
+
+  const weekStart = state.week ?? isoWeekStart(stationToday);
+  const days = weekDays(weekStart);
+  const weekEnd = days[6]?.date ?? weekStart;
+  // The state every link on this screen is built from carries the week actually
+  // drawn, never the absent one: an arrow built from `undefined` would name the
+  // week before whichever week the NEXT render happened to default to.
+  const drawn = { ...state, week: weekStart };
+
+  if (state.view === 'schedule') {
+    let week: Awaited<ReturnType<typeof listShowsForWeek>>;
+    try {
+      week = await listShowsForWeek({
+        companyId: state.companyId,
+        search: state.search?.slice(0, SHOW_SEARCH_MAX_LENGTH),
+        kind: state.kind,
+        weekStart,
+        weekEnd,
+      });
+    } catch (cause) {
+      logger.error({ err: cause, companyId: state.companyId }, 'could not read the programme week');
+      return <LoadError message={t('couldNotReadTheProgrammes')} />;
+    }
+
+    const permissions = await getMusicPermissions(supabase, selected.id);
+    const inThisWeek = stationToday >= weekStart && stationToday <= weekEnd;
+    // `% 24` because some engines render midnight as hour 24 under
+    // `hour12: false` — the quirk `zoneOffsetMs` (promotions/zone.ts) already
+    // guards against. Left alone it would put the now-line at the FOOT of the
+    // day it has just left rather than at the head of the one it is in.
+    const [hours = '0', minutes = '0'] = stationClock.split(':');
+
+    return (
+      <>
+        <PageHeader title={t('programmes')} description={t('programmesDescription')} />
+        <StationChoice
+          capped={capped}
+          stationSearch={stationSearch}
+          viewable={viewable}
+          suspended={suspended}
+          selectedId={selected.id}
+        />
+        <ShowsFilters state={drawn} />
+        <ScheduleBoard
+          blocks={layOutWeek(week.rows, days)}
+          days={days}
+          state={drawn}
+          manage={permissions.manage}
+          capped={week.capped}
+          nowMinutes={inThisWeek ? (Number(hours) % 24) * 60 + Number(minutes) : null}
+          todayDate={inThisWeek ? stationToday : null}
+          initialRecord={parseRecordParam(params as Record<string, string | undefined>, SHOW_TABS)}
+        />
+      </>
+    );
+  }
+
+  let page: ShowList;
   try {
-    page = await listShowsPage({
+    page = await listShows({
       companyId: state.companyId,
       search: state.search?.slice(0, SHOW_SEARCH_MAX_LENGTH),
       kind: state.kind,
       includeEnded: state.includeEnded,
       sort: state.sort,
       direction: state.direction,
-      cursor: cursorParam ? decodeCursor(cursorParam.value) : null,
-      cursorSide: cursorParam?.side ?? 'after',
     });
   } catch (cause) {
     logger.error({ err: cause, companyId: state.companyId }, 'could not read programmes');
@@ -114,63 +191,21 @@ export default async function ShowsPage({
     <>
       <PageHeader title={t('programmes')} description={t('programmesDescription')} />
 
-      {(capped || stationSearch) && (
-        <div className="mb-4 flex flex-col gap-2">
-          {capped && (
-            <p className="text-xs text-muted-foreground">
-              {t('showingOfTheStationsYouCanReach', { count: viewable.length + suspended.length })}
-            </p>
-          )}
-          <StationSearchForm
-            action="/shows"
-            value={stationSearch ?? ''}
-            preserve={{}}
-            label={t('findAStation')}
-          />
-        </div>
-      )}
+      <StationChoice
+        capped={capped}
+        stationSearch={stationSearch}
+        viewable={viewable}
+        suspended={suspended}
+        selectedId={selected.id}
+      />
 
-      {viewable.length + suspended.length > 1 && (
-        <div className="mb-6 flex flex-wrap gap-2">
-          {viewable.map((company) => (
-            <Link
-              key={company.id}
-              href={stationSwitchHref('/shows', company.id, stationSearch)}
-              aria-current={company.id === selected.id ? 'page' : undefined}
-              className={
-                company.id === selected.id
-                  ? 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground'
-                  : 'rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent'
-              }
-            >
-              {company.name}
-            </Link>
-          ))}
-          {/* A suspended Station stays visible so the UI can explain why access
-              stopped, then fails has_permission unconditionally. Rendered
-              disabled with the reason instead of silently vanishing. */}
-          {suspended.map((company) => (
-            <span
-              key={company.id}
-              title={t('suspendedNoDataIsAvailable')}
-              className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
-            >
-              {company.name}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <ShowsFilters state={state} />
+      <ShowsFilters state={drawn} />
 
       <ShowsGrid
         initialRows={page.rows}
         initialTotal={page.total}
         state={state}
-        previousHref={
-          page.previousCursor ? showHref(state, { side: 'before', value: page.previousCursor }) : null
-        }
-        nextHref={page.nextCursor ? showHref(state, { side: 'after', value: page.nextCursor }) : null}
+        capped={page.capped}
         manage={permissions.manage}
         initialRecord={parseRecordParam(params as Record<string, string | undefined>, SHOW_TABS)}
       />
@@ -205,6 +240,80 @@ async function LoadError({ message }: { message: string }) {
           <p className="text-sm text-destructive">{message}</p>
         </CardContent>
       </Card>
+    </>
+  );
+}
+
+/**
+ * The Station chooser, shared by both views of this screen (Block 30e, item 12).
+ *
+ * Extracted rather than duplicated: the list and the week grid are two renders of
+ * the same screen, and a second copy of these pills is how one view keeps a
+ * Station search the other drops.
+ */
+async function StationChoice({
+  capped,
+  stationSearch,
+  viewable,
+  suspended,
+  selectedId,
+}: {
+  capped: boolean;
+  stationSearch: string | undefined;
+  viewable: ViewableCompany[];
+  suspended: SuspendedCompany[];
+  selectedId: string;
+}) {
+  const t = await getTranslations('shows');
+
+  return (
+    <>
+      {(capped || stationSearch) && (
+        <div className="mb-4 flex flex-col gap-2">
+          {capped && (
+            <p className="text-xs text-muted-foreground">
+              {t('showingOfTheStationsYouCanReach', { count: viewable.length + suspended.length })}
+            </p>
+          )}
+          <StationSearchForm
+            action="/shows"
+            value={stationSearch ?? ''}
+            preserve={{}}
+            label={t('findAStation')}
+          />
+        </div>
+      )}
+
+      {viewable.length + suspended.length > 1 && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {viewable.map((company) => (
+            <Link
+              key={company.id}
+              href={stationSwitchHref('/shows', company.id, stationSearch)}
+              aria-current={company.id === selectedId ? 'page' : undefined}
+              className={
+                company.id === selectedId
+                  ? 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground'
+                  : 'rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent'
+              }
+            >
+              {company.name}
+            </Link>
+          ))}
+          {/* A suspended Station stays visible so the UI can explain why access
+              stopped, then fails has_permission unconditionally. Rendered
+              disabled with the reason instead of silently vanishing. */}
+          {suspended.map((company) => (
+            <span
+              key={company.id}
+              title={t('suspendedNoDataIsAvailable')}
+              className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
+            >
+              {company.name}
+            </span>
+          ))}
+        </div>
+      )}
     </>
   );
 }

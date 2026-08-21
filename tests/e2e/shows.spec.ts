@@ -206,6 +206,55 @@ test('an operator registers a programme with an overnight band and reads it back
   await ownerPage.getByTestId('shows-kind-filter').selectOption('MUSICAL');
   await expect(ownerPage.getByTestId('show-row')).toBeVisible({ timeout: 30_000 });
 
+  // BLOCK 30e, ITEM 12. The same list, drawn over a week.
+  //
+  // THE FILTER SURVIVING THE SWITCH is the half of item 12 that a screenshot
+  // cannot show and the half a second route would have broken: both views read
+  // one URL contract, so the tick set on the list is still set on the grid.
+  await ownerPage.getByTestId('shows-view-schedule').click();
+  await expect(ownerPage.getByTestId('shows-week')).toBeVisible({ timeout: 30_000 });
+  await expect(ownerPage.getByTestId('shows-include-ended')).toBeChecked();
+
+  // D4, AND THE WHOLE OF IT. This programme ran 2026-01-01 to 2026-01-31, so the
+  // CURRENT week is empty however the "show ended programmes" tick is set: the
+  // grid answers a question about dates, not about whether a row is over.
+  await expect(ownerPage.getByTestId('shows-week-empty')).toBeVisible();
+
+  // And the week it DID air in draws it — ended two blocks ago or not. A past
+  // week with holes where a programme ran would be a false picture of that week.
+  await ownerPage.goto(
+    `/shows?companyId=${station?.id ?? ''}&view=schedule&week=2026-01-26`,
+  );
+  await expect(ownerPage.getByTestId('show-block').first()).toBeVisible({ timeout: 30_000 });
+
+  // The overnight band is labelled with the hours that were TYPED -- on the
+  // Saturday head as well, where the row itself says 23:00-24:00. A block
+  // reading 00:00-02:00 would announce a programme nobody scheduled.
+  await expect(ownerPage.getByText('23:00–02:00').first()).toBeVisible();
+
+  // The arrows move a whole week and stay on the grid.
+  await ownerPage.getByTestId('shows-week-next').click();
+  await expect(ownerPage).toHaveURL(/week=2026-02-02/, { timeout: 30_000 });
+  await ownerPage.getByTestId('shows-week-previous').click();
+  await expect(ownerPage).toHaveURL(/week=2026-01-26/, { timeout: 30_000 });
+
+  // A block opens the same record the list opens.
+  await ownerPage.getByTestId('show-block').first().click();
+  await expect(ownerPage.getByTestId('show-name')).toHaveValue(showName, { timeout: 30_000 });
+  await ownerPage.keyboard.press('Escape');
+
+  await ownerPage.goto('/shows');
+  await expect(ownerPage.getByTestId('shows-table')).toBeVisible({ timeout: 30_000 });
+  await ownerPage.getByTestId('shows-include-ended').check();
+  await expect(ownerPage.getByTestId('show-row')).toBeVisible({ timeout: 30_000 });
+
+  // BLOCK 30e, D1. The screen shows every programme this Station has, so there is
+  // nothing to page through and nothing to click. The count stays: without paging
+  // it is the only thing left that says how many rows there are.
+  await expect(ownerPage.getByTestId('shows-count')).toBeVisible();
+  await expect(ownerPage.getByRole('link', { name: 'Next' })).toHaveCount(0);
+  await expect(ownerPage.getByRole('link', { name: 'Previous' })).toHaveCount(0);
+
   // A PASTED ADDRESS OPENS THE SAME RECORD. Nothing on this page put the row in
   // memory, so this is the read path rather than the row the dialog was opened
   // from — the half that used to be impossible when the form was inline.

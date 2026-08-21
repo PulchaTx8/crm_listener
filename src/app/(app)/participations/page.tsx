@@ -13,6 +13,9 @@ import {
 } from '@/services/participations';
 import type { ParticipationListPage } from '@/services/participations';
 import { getPromotionRecord, listPromotionsPage, promotionThumbs } from '@/services/promotions';
+import { getPromotionShowSchedule } from '@/services/shows';
+import type { PromotionSchedule } from '@/services/shows';
+import { bandsOnDay } from '@/lib/shows/programme-bands';
 import type { PromotionDetail } from '@/services/promotions';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
@@ -31,8 +34,9 @@ import {
   parseParticipationListState,
   SEARCH_NOTE_ID,
 } from './list-params';
-import type { ParticipationSearchParams } from './list-params';
+import type { ParticipationListState, ParticipationSearchParams } from './list-params';
 import { ParticipationsFilters } from './participations-filters';
+import { windowFor } from './programme-window';
 import type { PromotionOption, QuestionFilterGroup } from './participations-filters';
 import { ParticipationsGrid } from './participations-grid';
 import { ExportDialog } from '@/components/reports/export-dialog';
@@ -114,6 +118,56 @@ export default async function ParticipationsPage({
   // copy either.
   const searchTerm = state.search?.slice(0, PARTICIPATION_SEARCH_MAX_LENGTH);
 
+  /**
+   * Block 30e, item 18. The Programme the selected promotion belongs to, if any.
+   *
+   * A DELIBERATELY NARROW failure, like the promotion picker further down: this
+   * screen's purpose is the list, and a Programme schedule that cannot be read
+   * must cost the band combo and nothing else. `null` means no Programme, which
+   * is the ordinary case; a refusal is logged and treated the same way here,
+   * because a screen with two date filters is a working screen.
+   */
+  let programme: PromotionSchedule | null = null;
+  if (state.promotionId) {
+    try {
+      programme = await getPromotionShowSchedule(state.promotionId);
+    } catch (cause) {
+      logger.error(
+        { err: cause, promotionId: state.promotionId },
+        'could not read the promotion programme',
+      );
+    }
+  }
+
+  // The bands that START on the chosen day, and the one the operator is in. With
+  // no day chosen there is no window at all: the list behaves as it always did,
+  // minus the second date input.
+  const dayBands = programme && state.day ? bandsOnDay(programme.rows, state.day) : [];
+  const chosenBand = dayBands.find((band) => band.marker === state.bandMarker) ?? dayBands[0] ?? null;
+  const programmeWindow =
+    chosenBand && state.day ? windowFor(chosenBand, state.day, selected.timezone) : null;
+
+  /**
+   * D9. A day the Programme does not air is a window with NOTHING IN IT, not the
+   * absence of a filter. The list is not read at all, and the draw is not offered
+   * — a hat built from a state with no window would hold the whole promotion,
+   * which is the fail-open shape this project keeps finding.
+   */
+  const programmeSilent = Boolean(programme && state.day && dayBands.length === 0);
+
+  /**
+   * D8, D10. The state every consumer downstream reads.
+   *
+   * `day` and `bandMarker` stay on it, so every link this render produces keeps
+   * naming the day and the band; `from`/`to` carry the instants they name, and
+   * the list, the draw hat and the send-list filters already read exactly those
+   * two fields. That is what makes "eligible participations are only those made
+   * inside the band" true of the DRAW as well, with no second mechanism.
+   */
+  const effective: ParticipationListState = programme
+    ? { ...state, from: programmeWindow?.from, to: programmeWindow?.to }
+    : state;
+
   let canSearch: boolean;
   let canDraw: boolean;
   let canCreateSendList: boolean;
@@ -137,26 +191,33 @@ export default async function ParticipationsPage({
       canManageMessagingAt(supabase, selected.id),
     ]);
 
-    page = await listParticipationsPage(
+    // D9. Not read at all when the Programme does not air on the chosen day: a
+    // window with nothing in it is not a query worth asking, and asking it
+    // WITHOUT the window is how the screen would quietly widen to the whole day.
+    page = programmeSilent
+      ? { rows: [], nextCursor: null, previousCursor: null, total: 0 }
+      : await listParticipationsPage(
       {
         companyId: selected.id,
-        promotionId: state.promotionId,
+        promotionId: effective.promotionId,
         // ANY_STATUS is this screen's word for "do not narrow", and the service
         // has no such value: an absent status is how the query says it. The
         // constant rather than the literal, so the URL vocabulary lives in one
         // module and this comparison cannot quietly stop matching it.
-        status: state.status === ANY_STATUS ? undefined : state.status,
-        source: state.source,
-        from: state.from,
-        to: state.to,
+        status: effective.status === ANY_STATUS ? undefined : effective.status,
+        source: effective.source,
+        // Block 30e, D8: the band's two instants when the promotion has a
+        // Programme, and the operator's own two when it has not.
+        from: effective.from,
+        to: effective.to,
         // Dropped rather than forwarded when this caller cannot search. The
         // alternative — send it anyway and render whatever comes back — is
         // precisely the empty list the notice below exists to prevent.
         search: canSearch ? searchTerm : undefined,
         // Block 6c. Forwarded as they are: undefined is a third state, not a
         // default, and list_participations reads it as "both".
-        answeredCorrectly: state.answeredCorrectly,
-        optionId: state.optionId,
+        answeredCorrectly: effective.answeredCorrectly,
+        optionId: effective.optionId,
         cursor,
         cursorSide: cursorParam?.side ?? 'after',
       },
@@ -179,14 +240,17 @@ export default async function ParticipationsPage({
   // is showing, never a second, independently recomputed reading of `state`.
   const participationSendListFilters: ParticipationSendListFilters = {
     companyId: selected.id,
-    promotionId: state.promotionId,
-    status: state.status === ANY_STATUS ? undefined : state.status,
-    source: state.source,
-    from: state.from,
-    to: state.to,
+    promotionId: effective.promotionId,
+    status: effective.status === ANY_STATUS ? undefined : effective.status,
+    source: effective.source,
+    // Block 30e: `effective` rather than `state` here too, for the reason this
+    // comment already gives — a send list from this screen holds exactly what
+    // the screen is showing, and what it is showing is the band.
+    from: effective.from,
+    to: effective.to,
     search: canSearch ? searchTerm : undefined,
-    answeredCorrectly: state.answeredCorrectly,
-    optionId: state.optionId,
+    answeredCorrectly: effective.answeredCorrectly,
+    optionId: effective.optionId,
   };
 
   // The promotion picker's options: ONE page of promotions by name, never the
@@ -385,24 +449,44 @@ export default async function ParticipationsPage({
           chip, Clear filters, Previous/Next and Back all leave the search term
           untouched, so the term alone cannot report them. */}
       <ParticipationsFilters
-        state={state}
-        currentHref={participationsHref(state, cursorParam)}
+        state={effective}
+        currentHref={participationsHref(effective, cursorParam)}
         timeZone={selected.timezone}
         promotions={promotionOptions}
         questions={questions}
         canSearchByListener={canSearch}
+        programme={
+          programme
+            ? { showName: programme.showName, bands: dayBands, silent: programmeSilent }
+            : undefined
+        }
       />
+
+      {/* D9, said where the empty list is. Without this line an operator reads a
+          screen that found nothing and concludes nobody took part that day. */}
+      {programmeSilent && programme && (
+        <p
+          className="mt-3 text-sm text-muted-foreground"
+          data-testid="participation-programme-silent"
+        >
+          {t('theProgrammeDoesNotAirOnThatDate', { programme: programme.showName })}
+        </p>
+      )}
 
       {/* Block 6c: the draw lives beside the list it draws from.
           Rendered only with a promotion chosen and draws.execute in hand — a
           draw belongs to one promotion, and run_draw (0078) refuses without the
           code anyway, so offering the button to somebody who does not hold it
-          would only be a longer road to the same refusal. */}
-      {canDraw && state.promotionId && record && (
+          would only be a longer road to the same refusal.
+
+          AND NOT AT ALL when the Programme is silent (Block 30e, D9): the hat is
+          built from this state, and a state with no window would hand the draw
+          everyone who ever entered the promotion. */}
+      {canDraw && effective.promotionId && record && !programmeSilent && (
         <div className="mt-4" data-testid="participations-draw">
           <DrawPanel
-            state={state}
-            promotionId={state.promotionId}
+            state={effective}
+            promotionId={effective.promotionId}
             promotionName={record.name}
             linked={linked}
           />

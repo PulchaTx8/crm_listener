@@ -1,8 +1,12 @@
 import 'server-only';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { InternalError, UnauthorizedError, ValidationError } from '@/lib/errors';
-import { audienceGeographySchema, musicGeographySchema } from '@/schemas/geography';
-import type { AudienceGeography, MusicGeography } from '@/schemas/geography';
+import {
+  audienceGeographySchema,
+  musicGeographySchema,
+  promotionsGeographySchema,
+} from '@/schemas/geography';
+import type { AudienceGeography, MusicGeography, PromotionsGeography } from '@/schemas/geography';
 import type { PeriodSelection } from '@/app/(app)/dashboards/period';
 
 /**
@@ -52,4 +56,25 @@ export async function getMusicGeography(
   const { data, error } = await supabase.rpc('get_music_geography', periodArgs(companyIds, period));
   if (error) throw mapGeographyError(error.code, error.message);
   return musicGeographySchema.parse(data);
+}
+
+/**
+ * Block 30e, item 19. Where the entries of the period came from.
+ *
+ * The same shape as its two siblings, and the same `schema.parse`. What differs
+ * is that a REFUSAL is not the only way this one can come back without places:
+ * `withheld` names the permission when it does, and the panel renders that
+ * rather than an empty map (0270's header, design D12).
+ */
+export async function getPromotionsGeography(
+  companyIds: string[],
+  period: PeriodSelection,
+): Promise<PromotionsGeography> {
+  const supabase = await createUserClient();
+  const { data, error } = await supabase.rpc(
+    'get_promotions_geography',
+    periodArgs(companyIds, period),
+  );
+  if (error) throw mapGeographyError(error.code, error.message);
+  return promotionsGeographySchema.parse(data);
 }

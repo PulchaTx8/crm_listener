@@ -452,3 +452,71 @@ which is working, not silent.
 - **The eight members `0262` repaired are not the whole of the split.** A
   listener the split already turned into two separate rows stays two rows;
   merging them is the merge screen's job, not this migration's.
+
+## Block 30e — a week you can see, and a band that bounds a draw
+
+Two functions, `0269` and `0270`. Neither touches a table; both are read on the
+FIRST RENDER of a screen, which is what makes the deployment note at the end of
+this section matter.
+
+### `promotion_show_schedule` (`0269`) — a read that gets past the music gate
+
+`SECURITY DEFINER`, and it exists because `shows` and `show_schedules` carry one
+select policy each, both gated on **`music.view`** (`0099`, `0175`). The
+Participations screen needs a Programme's bands to offer item 18's window, and
+the operator who works that screen need not hold anything in the Music section.
+Left to RLS their band combo would be permanently **empty** — which does not read
+as "you may not see this", it reads as "this Programme never airs".
+
+So it re-checks **`participations.view`** at the promotion's own Station, by
+hand, because SECURITY DEFINER means RLS will not. Three answers, and two of them
+must not look alike:
+
+| Situation | Answer |
+| --- | --- |
+| the caller lacks `participations.view` there | `42501`, with the sentence naming the permission |
+| the promotion has no Programme, or does not exist | no rows |
+| otherwise | that Programme's schedule rows, archived Programme included |
+
+**Archived Programmes are included deliberately.** `0258`'s own comment on
+`promotions.show_id` says the link survives archiving "so that a promotion which
+ran inside a Programme still says so and Block 30e can still read that
+Programme's schedule".
+
+**It returns rows, not a window.** Rejoining a band from its rows (`toBands`) and
+turning a wall-clock into an instant (`fromZonedWallClock`) are both already
+written and tested on the TypeScript side, and the week grid draws from that same
+rejoining. A second implementation in SQL would be a second thing to keep in step
+with `save_show`.
+
+### `get_promotions_geography` (`0270`) — where the entries came from
+
+`SECURITY INVOKER`, like the four aggregates before it: the caller's own RLS cuts
+every participation and every member it reads, so the function cannot widen
+anybody's reach even if its own guard were wrong.
+
+**`total` IS `get_promotions_dashboard`'s `participations` figure for the same
+window** — every status, and counted from the `entry` CTE *before* the join to
+members, so an entry whose listener has since been deleted or anonymised still
+counts in the total while contributing no dot. That is Block 8a's D12b: every
+figure on a panel counts the same people, and a map counting a different
+population from the card beside it is the failure that rule exists to prevent.
+`tests/isolation/geography.test.ts` asserts the equality, and the assertion was
+proved load-bearing by mutation.
+
+**Three permissions, and only one of them refuses:**
+
+| Permission | Missing | Why |
+| --- | --- | --- |
+| `promotions.view` | `42501` | the panel's own gate |
+| `reports.consolidated` | `42501` when more than one Station is named | the same rule the other four aggregates carry |
+| `participations.view` | payload with `withheld: [{figure: 'places', needs: …}]` | the panel keeps its cards; a refusal would take the page down |
+| `members.view` | the same withheld payload, naming this one | SECURITY INVOKER means an unpermitted caller would otherwise get an EMPTY MAP under a coverage line still naming a total — which claims the Station has no geography |
+
+### Deploying this one
+
+Both functions are read on the first render of a screen — the Participations
+screen the moment a promotion with a Programme is selected, and the Promotions
+dashboard on load. `npx supabase db push --linked` has to run before either is
+opened in production; three blocks in a row (13a, 17b, 17c) shipped code whose
+migrations had not travelled with it.
