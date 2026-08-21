@@ -422,10 +422,11 @@ export function EnterPromotionPanel({
               line ended up under the rules AND under the address on
               2026-08-11. The second half (`refusalFor`) is a refusal from a
               DIFFERENT promotion the listener has since left; without it, a
-              single-screen promotion chosen right after a refusal reads
-              `last` as true immediately and shows a stale message about
-              rules it has not finished displaying — see `refusalFor`'s own
-              comment above. */}
+              refusal earned on one promotion surfaces on the LAST screen of
+              the next one the listener opens, under a step nobody has had the
+              chance to get wrong yet — see `refusalFor`'s own comment above,
+              which also records that this used to be reachable on a
+              promotion's FIRST render and why 0268 is what stopped that. */}
           {state.status === 'refused' && refusalFor === chosen.id && (last || screen === flagged) ? (
             <p className="text-sm text-destructive" data-testid="widget-promotion-error">
               {refusalMessage(t, state.reason)}

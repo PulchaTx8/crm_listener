@@ -131,8 +131,10 @@ const PHANTOM_ENTRY_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${PHANTOM_ENTRY_VIS
 const PHANTOM_ENTRY_VISITOR_NAME = 'Listener Whose Next Button Writes Early';
 
 /**
- * Block 29c, Task 10. The marketing checkbox's three-way rule, end to end —
- * a seventh phone, same per-number reason as the six before it.
+ * Block 29c, Task 10. The marketing checkbox's rule, end to end — a seventh
+ * phone, same per-number reason as the six before it. Three arms when 0234
+ * wrote it; four since 0268, and this journey walks the two promotions that
+ * still show the box.
  */
 const MARKETING_CONSENT_VISITOR_LOCAL_PHONE = `71${String(stamp).slice(-9)}`;
 const MARKETING_CONSENT_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${MARKETING_CONSENT_VISITOR_LOCAL_PHONE}`;
@@ -892,11 +894,12 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
 
   // BY NAME, NOT `.first()`. Block 20a's whole-branch review added two more
-  // promotions to this same fixture pool (`CONSENT_SWITCH_PROMOTION_A/B`),
-  // seeded with the same `ends_at` offset as this one -- `widget_promotions`
-  // (0186) orders `by p.ends_at` alone, so a tie between three rows is not
-  // something Postgres promises to break the same way on every run. This walk
-  // needs the field and quiz question only `PRIMARY_PROMOTION_NAME` has.
+  // promotions to this same fixture pool (`CONSENT_SWITCH_PROMOTION_A/B`) and
+  // Block 30d added a fourth (`FAST_ENTRY_PROMOTION_NAME`), all seeded with the
+  // same `ends_at` offset as this one -- `widget_promotions` (0186) orders `by
+  // p.ends_at` alone, so a tie between four rows is not something Postgres
+  // promises to break the same way on every run. This walk needs the quiz
+  // question only `PRIMARY_PROMOTION_NAME` has.
   await widget
     .getByTestId('widget-promotion-list')
     .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
@@ -1431,13 +1434,19 @@ test('a page on an origin the Station did not name cannot frame the widget at al
 });
 
 /**
- * Block 29c, Task 10. The widget's marketing checkbox, end to end — Task 9's
- * three-way rule (`widget_enter_promotion`, 0234): TICKED writes `true`,
- * ALWAYS; UNTICKED with no row yet writes `false`; UNTICKED with a row already
- * present writes NOTHING. The third arm is the Critical this block closed
- * (fix round 1, F23) and the one worth pinning here: a listener who does not
- * re-tick on a LATER promotion must not be read as withdrawing what they
- * already gave.
+ * Block 29c, Task 10. The widget's marketing checkbox, end to end —
+ * `widget_enter_promotion`, live on **0268**: TICKED writes `true`, ALWAYS;
+ * UNTICKED with no row yet writes `false`, provided the listener was SHOWN the
+ * box; UNTICKED with a row already present writes NOTHING. The third arm is
+ * the Critical Block 29c closed (its fix round 1, F23) and the one worth
+ * pinning here: a listener who does not re-tick on a LATER promotion must not
+ * be read as withdrawing what they already gave.
+ *
+ * THE "SHOWN THE BOX" PROVISO IS 0268's FOURTH ARM and it is not what this
+ * journey tests — both promotions below ask for a field, so both draw the
+ * consent screen and this listener is shown the box twice. The fast path,
+ * where they would not be, is pinned by the no-rules-screen journey further
+ * down this file and by 42_widget_promotions' last case.
  *
  * THE TWO ALREADY-SEEDED SWITCH PROMOTIONS (CONSENT_SWITCH_PROMOTION_A/B_NAME)
  * carry this walk: two screens each — consent, then the one field each asks

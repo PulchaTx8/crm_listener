@@ -10,11 +10,17 @@
 -- live; nothing between it and here redefined this function), with 'prompt',
 -- q.prompt added to the question branch and nothing else touched.
 --
--- BOTH CALLERS GET IT FOR FREE. widget_promotions (0186:57) passes this
--- function's answer straight through into 'steps', and widget_enter_promotion
--- (0234:121) recomputes the same call to restate what it is willing to accept
--- an answer for -- neither reads the question branch by key, so neither needs
--- editing.
+-- BOTH CALLERS GET IT FOR FREE. widget_promotions passes this function's answer
+-- straight through into 'steps', and widget_enter_promotion recomputes the same
+-- call to restate what it is willing to accept an answer for -- neither reads
+-- the question branch by key, so neither needs editing.
+--
+-- NEITHER CALLER IS CITED BY MIGRATION NUMBER, deliberately. This paragraph
+-- named 0186 and 0234 with line numbers, and 0268 has since replaced
+-- widget_enter_promotion -- so the citation would have sent a reader to a
+-- superseded body, which is the precise trap this project has a documented
+-- incident for. pg_get_functiondef against the running database is the only
+-- answer to "where does this live now" that cannot go stale.
 
 create or replace function public.whatsapp_conversation_steps(
   p_promotion_id uuid,

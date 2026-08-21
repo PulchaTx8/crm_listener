@@ -8,9 +8,16 @@
 -- THE ENTRY ITSELF DOES NOT CHANGE. This door already entered a listener whose
 -- recomputed step list was empty -- both missing-answer counts were zero and
 -- p_consent arrived true. The rules screen was the PANEL's, not this door's,
--- and what 0268 changes here is one INSERT.
+-- and 0268 does not change it either.
 --
--- TWO CHANGES TO THAT INSERT, argued where they sit:
+-- WHAT 0268 CHANGES IS TWO CONSENT WRITES. The `rules` insert, in two ways
+-- described immediately below, and -- since fix round 1 -- the
+-- whatsapp_marketing insert, which now writes nothing on the fast path (the
+-- paragraph further down this header, and the D10 note in the block itself).
+-- An earlier draft of this line said "one INSERT" and fix round 1 is what made
+-- that false.
+--
+-- TWO CHANGES TO THE `rules` INSERT, argued where they sit:
 --   * promotion_id, which was null on the one consent_type 0032's column
 --     comment names as the column's purpose; and
 --   * origin, now 'web-widget-entry' when nothing was asked and 'web-widget'
@@ -140,11 +147,19 @@ begin
   -- promotion with no quiz still asks a newcomer for the fields it declares,
   -- and asks a listener who has already given them for nothing.
   --
-  -- IT CHANGES NO OUTCOME, ONLY WHAT THE CONSENT ROW SAYS. An empty step list
+  -- IT CHANGES NO ENTRY, AND IT CHANGES TWO CONSENT ROWS. An empty step list
   -- was entered here before this migration exactly as it is after it -- both
   -- missing-answer counts below are zero either way, and p_consent has always
-  -- been a boolean this door takes on trust. What is new is that the row can
-  -- be told apart from one a tick produced.
+  -- been a boolean this door takes on trust. No refusal, no participation and
+  -- no audit row turns on this variable.
+  --
+  -- WHAT DOES TURN ON IT IS BOTH member_consents WRITES. The `rules` row gains
+  -- an origin that says which act produced it; and, since fix round 1, arm B of
+  -- the whatsapp_marketing block below is gated on `not v_fast` and writes
+  -- NOTHING where the pre-0268 door wrote a decline. That second one is a
+  -- behaviour change and the headline of this migration -- this comment said
+  -- "IT CHANGES NO OUTCOME, ONLY WHAT THE CONSENT ROW SAYS" until fix round 1,
+  -- which is the change that made its own description false.
   --
   -- 'consent' IS NOT COUNTED, and it is the first element of every list
   -- whatsapp_conversation_steps can build: by the owner's ruling of 2026-08-21
@@ -207,9 +222,12 @@ begin
   -- clicked a rules screen -- the consent comes from the act of entering, the
   -- way sending a hashtag does on WhatsApp -- and a row that cannot be told
   -- apart from a clicked one would be a record claiming something that did not
-  -- happen. Every row this door wrote before 0268 carries 'web-widget' and came
-  -- from a ticked box, because the panel had no other way to submit; nothing is
-  -- rewritten and nothing has to be.
+  -- happen. Every `rules` row this door wrote before 0268 carries 'web-widget'
+  -- and came from a ticked box, because the panel had no other way to submit;
+  -- nothing is rewritten and nothing has to be. `rules` rows, not every row it
+  -- writes: the whatsapp_marketing rows below carry 'widget', and the
+  -- identification rows widget_verify_code writes carry 'web-widget' from a
+  -- different door entirely.
   insert into public.member_consents
     (organization_id, member_id, company_id, consent_type, granted, origin,
      promotion_id, recorded_by)
@@ -278,7 +296,9 @@ begin
   -- and simply did not re-tick on a LATER promotion was written back to
   -- false with no withdrawal and no notice -- hitting repeat participants
   -- hardest, who are exactly the audience this block exists to build. A
-  -- THREE-WAY RULE replaces the blanket insert:
+  -- FOUR-ARM RULE replaces the blanket insert -- three arms from Block 29c and
+  -- a fourth from this migration's fix round 1, which is why 0234 and every
+  -- comment predating 0268 calls it three-way:
   --   TICKED                         -> write true, ALWAYS -- a re-consent is
   --                                      harmless and it is how somebody
   --                                      changes their mind, even from a
@@ -314,8 +334,7 @@ begin
   -- listener per Station by construction (spec D2) -- there is no repeat
   -- entry on that door for a stale unticked default to misfire against. This
   -- door has no such guarantee: every promotion entry reaches it, so the
-  -- three-way rule above is what this door needs that the conversation door
-  -- does not.
+  -- rule above is what this door needs that the conversation door does not.
   --
   -- ISOLATED IN ITS OWN SUB-BLOCK, on purpose, the same shape the sweep
   -- functions use for a per-item failure that must not stop the run (0094's
@@ -330,11 +349,17 @@ begin
   -- origin = 'widget' pairs with record_conversation_marketing_answer's own
   -- 'conversation', naming which door asked. It is deliberately NOT
   -- 'web-widget' or 'web-widget-entry', the two strings the
-  -- 'rules'/'identification' consents use: those predate this block and name a
-  -- different consent entirely, and reusing one of them would make a single
-  -- origin value describe two unrelated questions. It is NOT split by path the
-  -- way the `rules` row became in 0268, and that is a gap rather than a
-  -- decision -- the same one the D10 note at the top of this block records.
+  -- 'rules'/'identification' consents use: they name a different consent
+  -- entirely, and reusing one of them would make a single origin value describe
+  -- two unrelated questions. ('web-widget' predates this block; this migration
+  -- is what creates 'web-widget-entry', and an earlier draft of this sentence
+  -- said both were older than it.)
+  --
+  -- IT IS NOT SPLIT BY PATH the way the `rules` row is, and after fix round 1
+  -- there is nothing for such a split to say: a whatsapp_marketing row now
+  -- exists only because a listener was SHOWN a box, so `widget` already names
+  -- the one act that can produce it. The `rules` row needs its two values
+  -- precisely because it is written either way.
   --
   -- promotion_id IS CARRIED on the row THIS block writes, matching
   -- record_conversation_marketing_answer's own shape for the identical
@@ -342,10 +367,12 @@ begin
   -- THE `rules` INSERT EARLIER IN THIS FUNCTION carries it too since 0268
   -- (Block 30d, D10) and did not before, even though 0032's own column comment
   -- expects it precisely for consent_type = 'rules' -- 0032 declared the
-  -- column, nullable, before public.promotions existed (its comment's "does
-  -- not exist yet" names the TABLE, not the column, which is why the column is
-  -- nullable rather than absent; the foreign key member_consents_promotion_fk
-  -- exists today, so that half of the sentence is stale rather than wrong).
+  -- column, nullable, before public.promotions existed. Its comment reads, in
+  -- full and verbatim: "No foreign key yet: public.promotions does not exist.
+  -- Expected to be set only when consent_type = ''rules''." The clause about
+  -- the table not existing is why the column is nullable rather than absent,
+  -- and it is stale rather than wrong: member_consents_promotion_fk ->
+  -- promotions(id) exists today.
   -- This row is what proved the gap was an oversight: one function, two
   -- consent rows, and only one of them able to name the promotion.
   declare
@@ -386,7 +413,7 @@ end;
 $$;
 
 comment on function public.widget_enter_promotion is
-  'Block 17c. Records an entry made from the Station''s own website. Refuses by name -- unknown_installation, unknown_listener, listener_anonymized, promotion_closed, missing_answers, already_entered, refused -- so the widget can say which happened. THE STEP LIST IS RECOMPUTED HERE rather than trusted from the payload: the screen is not the authority on what a promotion asks, and a promotion edited mid-walk would otherwise be answered wrongly. Since 0186 it restates THREE of the list''s conditions rather than two -- web_enabled, rules present, and no non-ESSAY question left without alternatives -- so a browser holding a list drawn before the options were deleted is answered promotion_closed rather than blamed with missing_answers for a question nobody could see. Declining writes promotion_refusals stamped WEB and nothing else. Agreeing writes a `rules` consent row, which is a deliberate divergence from complete_conversation (0071) and from ingest_whatsapp_event''s fast path (0267), both of which record none. Since 0268 (Block 30d, D10) that row NAMES THE PROMOTION -- the column 0032 declared for exactly this consent_type -- and its origin says which path produced it: `web-widget` when the listener was shown the rules and ticked, `web-widget-entry` when the recomputed step list held no field and no question, in which case the panel draws no rules screen at all and choosing the promotion is the agreement. Since Block 29c (Task 9, fix round 1 F23) it ALSO writes a `whatsapp_marketing` consent row from `p_marketing_consent`, by a three-way rule rather than a blanket insert: ticked always writes true (a re-consent is harmless); unticked writes false only when no whatsapp_marketing row exists yet for (member, company); unticked writes NOTHING when one already does, because a repeat entry''s default-unticked box must never silently revoke an earlier opt-in (eligibility, 0229, reads the latest row). THE FALSE ARM IS GATED ON THE PATH (fix round 1, the owner''s ruling of 2026-08-21): on `web-widget-entry` no box is shown, so a listener with no row yet gets NO ROW rather than a decline they were never asked for -- absence is what this door already reads as "not asked", and entering agrees to the RULES without saying anything at all about marketing. A ticked box still writes true on either path. Written ONLY after the participation above is confirmed VALID, isolated in its own exception-catching sub-block so a failure there cannot undo an entry that already succeeded (a WARNING names the participation and SQLERRM instead). origin `widget` pairs with record_conversation_marketing_answer''s (0231) `conversation`; neither door writes through record_member_consent (0034), which is unreachable for a service-role caller with no auth.uid(). Granted to service_role only.';
+  'Block 17c. Records an entry made from the Station''s own website. Refuses by name -- unknown_installation, unknown_listener, listener_anonymized, promotion_closed, missing_answers, already_entered, refused -- so the widget can say which happened. THE STEP LIST IS RECOMPUTED HERE rather than trusted from the payload: the screen is not the authority on what a promotion asks, and a promotion edited mid-walk would otherwise be answered wrongly. Since 0186 it restates THREE of the list''s conditions rather than two -- web_enabled, rules present, and no non-ESSAY question left without alternatives -- so a browser holding a list drawn before the options were deleted is answered promotion_closed rather than blamed with missing_answers for a question nobody could see. Declining writes promotion_refusals stamped WEB and nothing else. Agreeing writes a `rules` consent row, which is a deliberate divergence from complete_conversation (0071) and from ingest_whatsapp_event''s fast path (0267), both of which record none. Since 0268 (Block 30d, D10) that row NAMES THE PROMOTION -- the column 0032 declared for exactly this consent_type -- and its origin says which path produced it: `web-widget` when the listener was shown the rules and ticked, `web-widget-entry` when the recomputed step list held no field and no question, in which case the panel draws no rules screen at all and choosing the promotion is the agreement. Since Block 29c (Task 9, fix round 1 F23) it ALSO writes a `whatsapp_marketing` consent row from `p_marketing_consent`, by a rule of FOUR arms rather than a blanket insert -- three from Block 29c, which is why every comment predating 0268 calls it three-way, and a fourth from 0268 itself: ticked always writes true (a re-consent is harmless); unticked writes false only when no whatsapp_marketing row exists yet for (member, company) AND the listener was shown the box; unticked writes NOTHING when a row already exists, because a repeat entry''s default-unticked box must never silently revoke an earlier opt-in (eligibility, 0229, reads the latest row); and unticked writes NOTHING on the fast path, which is the fourth. THE FALSE ARM IS GATED ON THE PATH (fix round 1, the owner''s ruling of 2026-08-21): on `web-widget-entry` no box is shown, so a listener with no row yet gets NO ROW rather than a decline they were never asked for -- absence is what this door already reads as "not asked", and entering agrees to the RULES without saying anything at all about marketing. A ticked box still writes true on either path. Written ONLY after the participation above is confirmed VALID, isolated in its own exception-catching sub-block so a failure there cannot undo an entry that already succeeded (a WARNING names the participation and SQLERRM instead). origin `widget` pairs with record_conversation_marketing_answer''s (0231) `conversation`; neither door writes through record_member_consent (0034), which is unreachable for a service-role caller with no auth.uid(). Granted to service_role only.';
 
 -- create or replace does not reset privileges, so neither statement below
 -- changes anything today. They are restated for the reason 0171 states them:

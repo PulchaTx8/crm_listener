@@ -497,8 +497,16 @@ select is(
 
 -- 26-27. An UNTICKED box explicitly answered false: THE DECLINE IS RECORDED,
 -- not omitted -- the same "asked, and said no" 0231's own conversation door
--- records for a Yes/No tap, and the reason this door does not simply skip
--- the insert when p_marketing_consent is false.
+-- records for a Yes/No tap, and the reason this door does not skip the insert
+-- merely because p_marketing_consent is false.
+--
+-- "MERELY BECAUSE" IS DOING WORK SINCE 0268, and this sentence said "does not
+-- simply skip the insert when p_marketing_consent is false" until Block 30d's
+-- fix round 1 made that false. The door skips it on the FAST PATH, where no
+-- box was shown -- see the case at the foot of this file. This listener was
+-- shown one, because their promotion asks for a field; that is what the
+-- fixture change above buys, and it is why this assertion still means what it
+-- was written to mean.
 select is(
   (select public.widget_enter_promotion(
      'pw_promostationa012345678', '00000000-0000-0000-0000-000000000432',
@@ -537,7 +545,8 @@ select is(
     where member_id = '00000000-0000-0000-0000-000000000431'),
   'WEB', 'the entry itself is unaffected by the marketing checkbox');
 
--- 31-38. Fix round 1, F23 (Critical). THE THREE-WAY RULE, on a REPEAT participant --
+-- 31-38. Fix round 1, F23 (Critical). THE RULE'S REPEAT-PARTICIPANT ARMS
+-- (three-way when 0234 wrote it; four-armed since 0268 added the fast path) --
 -- the case a single-entry listener (431-433 above) cannot exercise, because
 -- the rule only branches differently once a whatsapp_marketing row already
 -- exists.
@@ -644,8 +653,8 @@ select ok(
 -- ---------------------------------------------------------------------------
 -- BLOCK 30d, FIX ROUND 1 (D10). NOT ASKED IS NOT DECLINED.
 --
--- APPENDED AFTER THE ACL BLOCK RATHER THAN BESIDE THE THREE-WAY RULE IT
--- BELONGS WITH, and that is about this file rather than about these cases:
+-- APPENDED AFTER THE ACL BLOCK RATHER THAN BESIDE THE RULE'S OTHER ARMS,
+-- and that is about this file rather than about these cases:
 -- every header above names an assertion RANGE, so inserting three cases in the
 -- middle would silently falsify "39-42" and nothing would go red. 73_fast_entry
 -- has already had to write that lesson down once. Placed last, every existing

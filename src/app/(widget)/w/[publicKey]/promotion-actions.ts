@@ -186,10 +186,20 @@ export async function enterPromotionAction(
     p_consent: parsed.data.consent,
     p_fields: parsed.data.fields,
     p_answers: parsed.data.answers,
-    // Block 29c, Task 9. Both directions are meaningful to widget_enter_promotion
-    // (0234): a ticked box writes an opt-in, an unticked one writes an explicit
-    // decline, and either way the row is written only after the entry itself is
-    // recorded — never a reason this call can fail on its own.
+    // Block 29c, Task 9. TICKED IS AN OPT-IN AND UNTICKED IS NOT ALWAYS A
+    // DECLINE. `widget_enter_promotion` (live on 0268) writes true whenever
+    // this is true; false only when the listener has no whatsapp_marketing row
+    // AND was actually shown the box; and nothing at all otherwise. Either way
+    // the row is written only after the entry itself is recorded — never a
+    // reason this call can fail on its own.
+    //
+    // THE "SHOWN THE BOX" HALF IS ABOUT THIS FILE. On Block 30d's fast path the
+    // panel draws no consent screen, so no checkbox exists, so the schema above
+    // reads an absent field and sends `false` from here — a default, not an
+    // answer. 0268 refuses to record it as one (D10a): entering agrees to the
+    // promotion's RULES and says nothing whatever about marketing. This comment
+    // said an unticked box "writes an explicit decline" until fix round 2, and
+    // it was the last place still saying so.
     p_marketing_consent: parsed.data.marketingConsent,
   });
 

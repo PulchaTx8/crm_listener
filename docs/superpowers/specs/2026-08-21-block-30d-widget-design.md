@@ -405,9 +405,11 @@ consent row is written anyway.
 
 The objection was raised and the owner ruled; what this design does is make the
 row **say what actually happened**. `member_consents.origin` (0032) is free text
-and today the web door writes `'web-widget'` (`0234:157`). The fast path writes a
-value of its own, so a row produced by the act of entering is distinguishable
-from one produced by a click, for ever, by reading the row.
+and before this block the web door wrote `'web-widget'` on every `rules` row it
+made (`0234`, the insert immediately above `apply_participation`). The fast path
+writes a value of its own — `'web-widget-entry'`, which `0268` is what creates —
+so a row produced by the act of entering is distinguishable from one produced by
+a click, for ever, by reading the row.
 
 **And `promotion_id` gets filled — on both paths.** The column exists for exactly
 this and the `rules` insert leaves it null. `0032`'s column comment, quoted from
@@ -473,9 +475,11 @@ Two consequences worth recording rather than rediscovering:
   declared no requested fields. Their fixtures gained one (and two different
   ones, since two of their listeners enter both promotions); their assertions did
   not change. They were written to pin the marketing rule and they still do.
-- The three consent-only promotions in `tests/e2e/widget.spec.ts` needed the same
-  treatment for the same reason, one layer up: a consent-only promotion is now a
-  promotion with no consent screen.
+- The **two** consent-only promotions in `tests/e2e/widget.spec.ts`
+  (`CONSENT_SWITCH_PROMOTION_A/B`) needed the same treatment for the same reason,
+  one layer up: a consent-only promotion is now a promotion with no consent
+  screen. **Three journeys** use them, which is the number this paragraph first
+  reported as promotions.
 
 ---
 

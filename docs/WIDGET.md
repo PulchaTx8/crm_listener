@@ -404,16 +404,40 @@ options were deleted is refused `promotion_closed`, not blamed with
 `missing_answers` for a question it was never shown a way to answer. §13
 covers what deploying `0186` requires.
 
-### What the door writes, and the one divergence
+### What the door writes, and where it diverges from WhatsApp
 
 `widget_enter_promotion` does what `complete_conversation` (0071) does — the
 field values onto `members` through the shared `apply_member_field_values`, one
 confirmation per field answered, then `apply_participation(..., 'WEB', answers)`
 — **plus a `rules` consent row, which the WhatsApp flow does not write at all.**
 
-That divergence is deliberate: there is now a rules text that was displayed and
-agreed to. **The owner has ruled that WhatsApp will record the same consent when
-that door is next worked on.** Until then the two differ, in writing.
+That divergence is deliberate: there is a rules text, and entering is agreeing
+to it.
+
+**The 2026-08-11 wording of this section said "a rules text that was displayed
+and agreed to", and Block 30d made the first half of that untrue.** Since `0268`
+a promotion with nothing left to ask of this listener is entered straight from
+the list with no rules screen at all, so the row's `origin` is what records which
+act produced it: `web-widget` when the listener was shown the text and ticked,
+`web-widget-entry` when there was no screen and choosing the promotion WAS the
+agreement. The text is still reachable — the panel renders it on the
+confirmation. Since `0268` the row also carries `promotion_id`, which it had
+always left null.
+
+**And the prediction about WhatsApp has since been answered the other way.** This
+section used to say the owner had ruled WhatsApp would record the same consent
+when that door was next worked on. That door was worked on — `0267`, Block 30d —
+and it records none: sending a hashtag enters the listener and writes no
+`member_consents` row, which that migration states in its own comment. The two
+doors still differ, in writing, and the difference is now settled rather than
+pending.
+
+**A second consent row, and the one case it is NOT written.** Since Block 29c
+(`0234`) this door also writes a `whatsapp_marketing` row from the widget's
+marketing checkbox — true when ticked, false when unticked and the listener has
+no such row yet, nothing when one already exists. `0268` adds the fourth case:
+on the fast path no checkbox is shown, so nothing is written and the listener
+stays askable. Entering agrees to the *rules*; it says nothing about marketing.
 
 Declining is a real path: it writes `promotion_refusals` stamped `WEB` and
 nothing else.

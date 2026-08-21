@@ -745,10 +745,12 @@ begin
   -- whatsapp_conversation_steps can build. Sending the hashtag IS asking to
   -- take part -- the rules gate above says exactly that about web_enabled --
   -- and this door has never written a member_consents row. The divergence
-  -- from the web is deliberate and already on the record: 0234's comment on
-  -- widget_enter_promotion calls its own `rules` row "a deliberate divergence
-  -- from complete_conversation (0071), which records none", and this door
-  -- records none either.
+  -- from the web is deliberate and on the record at both ends:
+  -- widget_enter_promotion calls its own `rules` row a deliberate divergence
+  -- from the doors that record none, and since 0268 it names THIS one among
+  -- them by number rather than only complete_conversation (0071). Read that
+  -- claim off the live function (pg_get_functiondef) rather than off 0234,
+  -- whose wording 0268 replaced.
   --
   -- PLACED ABOVE THE no_installation GATE AND BELOW no_rules, and both halves
   -- of that are deliberate. The first cut of this migration sat below both,
