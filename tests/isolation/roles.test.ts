@@ -53,7 +53,7 @@ describe('roles', () => {
     expect(there).toBe(false);
   });
 
-  it('lets a users.invite holder scoped to one Station list every Station for inviting, but refuses the users.manage call', async () => {
+  it('lets a users.invite holder scoped to one Station list THAT Station for inviting, and answers the users.manage call with nothing', async () => {
     // Pins 0023_list_manageable_companies_by_permission.sql, fixing what 0022
     // got wrong: create_invitation authorises users.invite Organization-wide
     // (has_org_permission — a role in ANY Company grants it everywhere), the
@@ -80,9 +80,13 @@ describe('roles', () => {
     expect(directIds).toContain(customer.companyId);
     expect(directIds).not.toContain(second);
 
-    // The users.invite call must show every Station in the Organization,
-    // because create_invitation authorises users.invite Organization-wide,
-    // not per-Company.
+    // ONE STATION, not every Station, since 0283. This asserted the opposite
+    // until then, and correctly: create_invitation authorised users.invite
+    // Organization-wide, so a checklist offering every Station matched what the
+    // door would accept. 0282 descended that permission to the Stations an
+    // invitation names, and a list that goes on offering the rest is a list of
+    // things the door refuses -- worse than a short list, because nothing on the
+    // page explains the refusal.
     const { data: invitable, error: invitableError } = await inviterClient.rpc(
       'list_manageable_companies',
       { p_organization_id: customer.organizationId, p_permission: 'users.invite' },
@@ -90,20 +94,27 @@ describe('roles', () => {
     expect(invitableError).toBeNull();
     const invitableIds = (invitable ?? []).map((r) => r.id);
     expect(invitableIds).toContain(customer.companyId);
-    expect(invitableIds).toContain(second);
+    expect(invitableIds).not.toContain(second);
 
-    // But this same person holds no users.manage anywhere, so the OTHER
-    // permission's call must refuse them — the two surfaces ask two different
-    // questions, and holding one answer must not answer the other.
-    const refusedManage = await inviterClient.rpc('list_manageable_companies', {
+    // This same person holds no users.manage anywhere, and the OTHER
+    // permission's call now answers with an EMPTY LIST rather than raising.
+    // 0283 dropped the outer refusal deliberately: "which Stations may I manage
+    // users at" has a true answer for somebody who may manage none, and it is
+    // none. It also stopped refusing a Station's OWNER outright, who holds a
+    // membership with no role and so never matched has_org_permission at all.
+    //
+    // The point this test was written to make survives, and reads better: one
+    // call returns a Station and the other returns nothing, so holding one
+    // answer still does not answer the other.
+    const managedByInviter = await inviterClient.rpc('list_manageable_companies', {
       p_organization_id: customer.organizationId,
       p_permission: 'users.manage',
     });
-    expect(refusedManage.error).not.toBeNull();
-    expect(refusedManage.error!.message).toMatch(/users\.manage/);
+    expect(managedByInviter.error).toBeNull();
+    expect(managedByInviter.data ?? []).toHaveLength(0);
   });
 
-  it('lets a users.manage holder scoped to one Station list every Station for managing, but refuses the users.invite call', async () => {
+  it('lets a users.manage holder scoped to one Station list THAT Station for managing, and answers the users.invite call with nothing', async () => {
     // The mirror of the test above: proves the fix runs both ways, not just
     // for the permission that happened to expose the regression.
     const label = `roles-manage-list-${Date.now()}`;
@@ -128,14 +139,17 @@ describe('roles', () => {
     expect(manageableError).toBeNull();
     const manageableIds = (manageable ?? []).map((r) => r.id);
     expect(manageableIds).toContain(customer.companyId);
-    expect(manageableIds).toContain(second);
-
-    const refusedInvite = await managerClient.rpc('list_manageable_companies', {
+    // ONE Station since 0283, for the reason its twin above sets out: the list
+    // must name what the doors accept, and 0281 descended users.manage to the
+    // The EMPTY LIST, not a refusal, and the twin above says why: 0283 dropped
+    // the outer raise because "none" is a true answer, and because the raise
+    // also shut out a Station's owner, who holds a membership with no role.
+    const invitableByManager = await managerClient.rpc('list_manageable_companies', {
       p_organization_id: customer.organizationId,
       p_permission: 'users.invite',
     });
-    expect(refusedInvite.error).not.toBeNull();
-    expect(refusedInvite.error!.message).toMatch(/users\.invite/);
+    expect(invitableByManager.error).toBeNull();
+    expect(invitableByManager.data ?? []).toHaveLength(0);
   });
 
   it('refuses a permission code outside its allowlist, even for the owner', async () => {
