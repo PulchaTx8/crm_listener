@@ -69,7 +69,7 @@ premise is wrong and the rest of this plan must not be executed.
 - Consumes fixtures already in this file: Station `00000000-0000-0000-0000-0000000005c2`, Organization `00000000-0000-0000-0000-0000000005f1`, and the live promotion `#EUQUERO` (`00000000-0000-0000-0000-000000000591`, window `2026-06-01Z` to `2026-06-30Z`).
 - Produces: nothing other tasks consume.
 
-- [ ] **Step 1: Raise the plan count**
+- [x] **Step 1: Raise the plan count**
 
 `supabase/tests/06_whatsapp.test.sql` line 2 reads `select plan(147);`. This task
 adds seven assertions.
@@ -78,7 +78,7 @@ adds seven assertions.
 select plan(154);
 ```
 
-- [ ] **Step 2: Append the failing section at the end of the file, immediately before `select * from finish();`**
+- [x] **Step 2: Append the failing section at the end of the file, immediately before `select * from finish();`**
 
 Placed at the end deliberately: it mutates `companies.status` and
 `organizations.suspended_at`, and every earlier assertion in this file depends on
@@ -163,7 +163,7 @@ select isnt(
   'and the very same message at the restored Station is not refused');
 ```
 
-- [ ] **Step 3: Run the suite and watch it fail**
+- [x] **Step 3: Run the suite and watch it fail**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -177,7 +177,7 @@ outbox row that should not exist. The last assertion passes already.
 If instead the first assertion reports `have: tenant_inactive`, the hole is
 already closed and this plan is obsolete. Stop and report that.
 
-- [ ] **Step 4: Commit the failing test**
+- [x] **Step 4: Commit the failing test**
 
 ```bash
 git add supabase/tests/06_whatsapp.test.sql
@@ -197,7 +197,7 @@ git commit -m "test(p1): the suspended Station that still registers listeners, p
 - Consumes: `public.finish_whatsapp_event(p_event_id uuid, p_outcome text, p_status text, p_participation_id uuid) returns jsonb` — the same call the `no_promotion` branch 60 lines below already makes.
 - Produces: outcome value `'tenant_inactive'` on `webhook_events.outcome`, which no other task and no TypeScript consumes.
 
-- [ ] **Step 1: Create the migration by copying the live definition forward**
+- [x] **Step 1: Create the migration by copying the live definition forward**
 
 ```bash
 { printf -- '-- supabase/migrations/0271_suspended_station_gate.sql\n\n'; \
@@ -216,7 +216,7 @@ grep -c '^[$][$];' supabase/migrations/0271_suspended_station_gate.sql  # expect
 tail -c 60 supabase/migrations/0271_suspended_station_gate.sql          # ends: minutes later.';
 ```
 
-- [ ] **Step 2: Insert the gate**
+- [x] **Step 2: Insert the gate**
 
 In the new file, find the payload-integrity raise that ends this way (it is the
 second of two, at `0267:511-515`):
@@ -270,7 +270,7 @@ comment:
   end if;
 ```
 
-- [ ] **Step 3: Correct the two comments this makes false, in the new migration only**
+- [x] **Step 3: Correct the two comments this makes false, in the new migration only**
 
 At the end of `0271_suspended_station_gate.sql`, two things must change. Neither
 file that first wrote them may be touched.
@@ -294,7 +294,7 @@ comment on column public.webhook_events.outcome is
   'Why this event finished. With status DONE it distinguishes recorded from no_integration, no_hashtag, no_promotion, promotion_cancelled, outside_window and -- since 0271 -- tenant_inactive, which is a suspended Station or a blocked Organization refusing every hashtag before anything is written or sent. All but the first are silent to the listener (design spec D4), and all of them are things somebody will eventually have to explain. "skipped" is NOT one of them: an event the door declined to take is left exactly as it was and never reaches DONE.';
 ```
 
-- [ ] **Step 4: Run the suite and watch it pass**
+- [x] **Step 4: Run the suite and watch it pass**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -307,7 +307,7 @@ and whose Stations are live, so the new gate is transparent to them.
 If a file other than `06_whatsapp` fails, the copy in Step 1 lost something.
 Diff the new function body against `0267:317-931` before changing anything else.
 
-- [ ] **Step 5: Prove the copy reverted nothing**
+- [x] **Step 5: Prove the copy reverted nothing**
 
 The one failure mode this migration has is silent: a body copied from the wrong
 generation reverts fixes and every test still passes, because the tests that
@@ -320,7 +320,7 @@ diff   <(sed -n '317,931p' supabase/migrations/0267_whatsapp_fast_entry.sql)   <
 Expected: exactly one hunk, the inserted gate. Any other difference is
 unintended and must be reverted line by line.
 
-- [ ] **Step 6: Run the remaining gates**
+- [x] **Step 6: Run the remaining gates**
 
 ```bash
 npm run lint && npm run build && npm run test
@@ -330,7 +330,7 @@ Expected: all pass. None of them touch this function, and that is the point —
 this step exists to prove the migration did not break the type generation or the
 build.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add supabase/migrations/0271_suspended_station_gate.sql
@@ -341,12 +341,47 @@ git commit -m "fix(p1): a suspended Station stops registering listeners and enqu
 
 ## Closing checklist
 
-- [ ] `npm run db:reset && npm run db:test` green from a clean database.
-- [ ] The `diff` in Task 2 Step 5 shows one hunk and nothing else.
-- [ ] `0267` and `0058` are untouched: `git diff main --stat` names only
+- [x] `npm run db:reset && npm run db:test` green from a clean database.
+- [x] The `diff` in Task 2 Step 5 shows one hunk and nothing else.
+- [x] `0267` and `0058` are untouched: `git diff main --stat` names only
       `supabase/tests/06_whatsapp.test.sql` and
       `supabase/migrations/0271_suspended_station_gate.sql`.
 - [ ] **The migration is applied to the hosted database after the PR merges.**
       This project has shipped code without its migrations three times — Blocks
       13a, 17b and 17c — and the symptom is always a screen failing in production
       against a schema that never received the change.
+
+---
+
+## What execution changed, recorded because the plan was wrong about it
+
+**Seven assertions became ten.** The plan's outbox assertion counted rows from
+`pg_temp.confirmation`, which is declared `returns public.outbox_messages` rather
+than `setof` and so always yields exactly one row. It failed identically before
+and after the fix — noise wearing the costume of a symptom. Counting the table
+directly then showed the fixture was too narrow: `#EUQUERO` carries rules text,
+so a first-time listener leaves by the link path and never reaches the pre-check.
+The pre-check is where the expensive half of the defect lives, and it needed a
+repeat listener to reach. Three assertions added for that shape.
+
+**The hole has two shapes, and the plan described only one.** A stranger's first
+message registers the listener and answers `no_installation`. A repeat listener's
+message is recorded, answered `recorded`, and a reply is enqueued that Meta bills
+the lapsed Station for. `0267`'s comment was right; the plan's reading of it was
+narrow.
+
+**Two other suites had to change, which the plan said would not happen.**
+`44_service_hashtags` (tests 19-21) and `73_fast_entry` (three liveness cases)
+pinned `no_installation` and `no_promotion` as the dead-tenant answers. They are
+not regressions — they are the old words being replaced deliberately — and each
+description was rewritten rather than having its expected value flipped.
+
+**One fixture correction.** `organizations_block_shape` (`0154`) is
+`(suspended_at is null) = (suspended_by is null)`, so blocking an Organization in
+a test needs both columns. Setting the timestamp alone raises 23514 and aborts
+the file part-way, which reads as missing assertions rather than as a broken
+fixture.
+
+**Final state:** 2536 pgTAP, 1772 vitest, lint clean, build clean. The
+copy-forward diff is one hunk, 55 lines added, none removed. `0267` and `0058`
+untouched.
