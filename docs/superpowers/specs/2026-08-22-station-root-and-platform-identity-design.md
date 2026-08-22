@@ -645,6 +645,35 @@ that this is what buying a business with its customer list means.
 *Text to correct in passing:* `0010_permissions.sql:28` describes `audit.view` as
 *"Read the Organization's audit trail"*. Under D17 and D18 it is the Station's.
 
+### D20 — Contradictory profiles: keep both, and retire rather than delete
+
+The owner's ruling of 2026-08-22, given before the census was run and in place of
+it:
+
+> Não se preocupe com fichas duplicadas. Se conseguir deixar as duas, tudo bem,
+> se não conseguir, delete a que menos cause impacto na quantidade de pedidos e
+> participações.
+
+**Keeping both is the default and almost always possible**, because this model
+does not need profiles to merge. A Station's profile belongs to that Station; two
+of them pointing at one platform person is the ordinary case, not a conflict.
+What the backfill can meet is a **contradiction** — two profiles agreeing on a
+telephone and disagreeing on a CPF, so the identity claims cannot all be live at
+once. D13's claims absorb most of that: a claim carries a validity, so a person
+may have held several telephones and several addresses over time.
+
+**Where a contradiction genuinely cannot be represented, the profile with fewer
+music requests and participations is RETIRED** — `deleted_at`, the mechanism
+already there — **and never deleted.** Deleting would leave its participations
+and music requests without a subject, or oblige the backfill to re-point the 14
+tables carrying `member_id`, which is the listener-merge machinery this product
+has never had and this model was chosen so as never to need. Retiring keeps every
+record where it was written, and D7 already requires the name to be stamped into
+the business rows, so the Station's history stays readable afterwards.
+
+*Reading stated by Claude, not contradicted:* the owner said "delete"; retiring is
+what that means here, and the difference is the whole cost of the block.
+
 ---
 
 ## 4. What the schema makes hard, measured rather than assumed
@@ -728,10 +757,12 @@ the prize, and it is already there. Taken the other way, the entry itself would
 refuse, and the fast path — which records and answers with no screen at all —
 would have to grow a screen.
 
-**6.5 — The backfill census is not a decision, it is P0.** How many profiles in
-production match across Organizations by telephone, e-mail, CPF or passport. Its
-answer sizes P2 and can change P2's design, and it is the cheapest thing in the
-programme. It must be measured before P2 is planned.
+**6.5 — The backfill census stops blocking P2.** It was written here to answer
+one question: what P2 does when two profiles agree on one identifier and
+contradict each other on another. **The owner answered it by ruling on
+2026-08-22, before it was measured** — see D20 — so the census is no longer a
+prerequisite. It remains worth running for sizing, and P0 stays in §11 for that,
+but nothing waits on it.
 
 ## 7. What the owner has to do, and when
 
@@ -859,7 +890,7 @@ that comes after it.
 
 | # | Block | Why here |
 | --- | --- | --- |
-| **P0** | **The census.** Measure the cross-Organization identifier collisions in production (§6.5). No schema change. | Its answer sizes P2 and can change P2's design. Cheapest thing in the programme. |
+| **P0** | **The census.** Measure the cross-Organization identifier collisions in production (§6.5). No schema change. | Sizing only since D20 ruled the question it was going to settle. Cheap, and worth knowing before the backfill runs, but P2 no longer waits on it. |
 | **P1** | **Close the `0267` gate.** The promotion hashtag stops registering for a suspended Station or blocked Organization. | Independent of everything, valuable alone, and the lines are already identified by a previous review. |
 | **P2** | **The platform person.** The identifiers-only table, `members.person_id`, the backfill, resolve-or-create inside `0061_member_resolution_cores.sql`. | The foundation. Lands in one shared body, which is why the four doors cannot drift. |
 | **P3** | **Claims.** Telephone and e-mail become rows with validity and identity key; `enable_identity_key_check`; `user_changed_number` and follow/split. | Needs P2's person to attach to. |
@@ -874,7 +905,7 @@ that comes after it.
 | **P12** | **Frozen consolidation.** Period close, composition recorded, dashboards reading snapshots for closed periods. | Independent of the identity work; can run in parallel from P7 onward. |
 | **P13** | **The move.** One column, the staff list presented for confirmation, and the screen living in the platform console. | The original Block 31b, reduced to this. Needs P5 and P7. |
 
-**P0, P1 and P5 can start immediately.** P5 depends on none of the identity work,
-only on `company_memberships`, which `0007`, `0013`, `0017` and `0018` already
-populate. P2 waits on P0''s census and on nothing else; every other §6 item is
-settled.
+**P1 shipped** (PR #97). **P0, P2 and P5 are all free to start.** P5 depends on
+none of the identity work, only on `company_memberships`, which `0007`, `0013`,
+`0017` and `0018` already populate; and P2 stopped waiting on the census when D20
+ruled the question it existed to answer. Every §6 item is settled.
