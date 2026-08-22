@@ -195,11 +195,16 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   // surface with the permission that surface actually needs (0023) — if the
   // invite checklist were still fed by a users.manage-gated call, this
   // Manager would be refused outright and see an empty checklist, unable to
-  // invite anyone into any Station at all, including their own. Sending into
-  // Station B specifically — the one this Manager does NOT belong to — also
-  // proves users.invite's Organization-wide reach, the same shape
-  // create_invitation itself checks, not merely action within their own
-  // membership.
+  // invite anyone into any Station at all, including their own.
+  //
+  // UNTIL 0282 THIS SENT INTO STATION B — the Station this Manager does NOT
+  // belong to — and the comment here called that "users.invite's
+  // Organization-wide reach". That reach is what design D17 removes: staffing is
+  // per Station, and a Manager holding users.invite at Station A has no business
+  // putting somebody into Station B. So the checklist no longer offers B (0283
+  // filters it to the Stations the caller may actually invite to, instead of
+  // listing every Station in the group and letting the door refuse afterwards),
+  // and the invitation goes into Station A, where this Manager works.
   await openNavSection(inviteePage, 'Organization');
   await inviteePage.getByRole('link', { name: 'Team' }).click();
   await expect(inviteePage).toHaveURL(/\/team$/);
@@ -209,11 +214,13 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
     has: inviteePage.getByPlaceholder("Colleague's e-mail"),
   });
   await expect(managerInviteForm.getByLabel(stationAName)).toBeVisible();
-  await expect(managerInviteForm.getByLabel(stationBName)).toBeVisible();
+  // And B is gone from the checklist rather than present-and-refused: a list of
+  // what you may do that includes what you may not is worse than a short list.
+  await expect(managerInviteForm.getByLabel(stationBName)).toHaveCount(0);
 
   await managerInviteForm.getByPlaceholder("Colleague's e-mail").fill(colleagueEmail);
   await managerInviteForm.getByRole('combobox').selectOption({ label: 'Manager' });
-  await managerInviteForm.getByLabel(stationBName).check();
+  await managerInviteForm.getByLabel(stationAName).check();
   await managerInviteForm.getByRole('button', { name: 'Send invitation' }).click();
 
   const managerInviteLink = inviteePage.locator('code').first();
