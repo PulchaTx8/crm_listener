@@ -444,8 +444,9 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           id: string
+          is_owner: boolean
           organization_id: string
-          role_id: string
+          role_id: string | null
           updated_at: string
           user_id: string
         }
@@ -454,8 +455,9 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           id?: string
+          is_owner?: boolean
           organization_id: string
-          role_id: string
+          role_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -464,8 +466,9 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           id?: string
+          is_owner?: boolean
           organization_id?: string
-          role_id?: string
+          role_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -2329,6 +2332,7 @@ export type Database = {
           description: string
           display_order: number
           introduced_by_block: string
+          kind: Database["public"]["Enums"]["permission_kind"]
           label: string
           module: string
           scope: Database["public"]["Enums"]["permission_scope"]
@@ -2339,6 +2343,7 @@ export type Database = {
           description: string
           display_order?: number
           introduced_by_block: string
+          kind: Database["public"]["Enums"]["permission_kind"]
           label: string
           module: string
           scope: Database["public"]["Enums"]["permission_scope"]
@@ -2349,6 +2354,7 @@ export type Database = {
           description?: string
           display_order?: number
           introduced_by_block?: string
+          kind?: Database["public"]["Enums"]["permission_kind"]
           label?: string
           module?: string
           scope?: Database["public"]["Enums"]["permission_scope"]
@@ -4625,6 +4631,7 @@ export type Database = {
       }
       backfill_member_field_confirmations: { Args: never; Returns: undefined }
       backfill_member_person_ids: { Args: never; Returns: number }
+      backfill_station_owners: { Args: never; Returns: number }
       block_member: {
         Args: {
           p_company_id?: string
@@ -5239,6 +5246,11 @@ export type Database = {
       }
       is_platform_admin: { Args: never; Returns: boolean }
       is_platform_admin_for: { Args: { p_user_id: string }; Returns: boolean }
+      is_station_owner: { Args: { p_company_id: string }; Returns: boolean }
+      is_station_owner_for: {
+        Args: { p_company_id: string; p_user_id: string }
+        Returns: boolean
+      }
       issue_api_credential: {
         Args: {
           p_company_id: string
@@ -6709,6 +6721,7 @@ export type Database = {
       outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
       participation_source: "MANUAL" | "IMPORT" | "WHATSAPP" | "WEB"
       participation_status: "VALID" | "DUPLICATE" | "TOO_SOON" | "OVER_LIMIT"
+      permission_kind: "READ" | "WRITE"
       permission_scope: "organization" | "company"
       person_identifier_kind: "PHONE" | "EMAIL" | "CPF" | "PASSPORT"
       promotion_question_kind: "QUIZ" | "MULTIPLE_CHOICE" | "ESSAY"
@@ -6988,6 +7001,7 @@ export const Constants = {
       outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],
       participation_source: ["MANUAL", "IMPORT", "WHATSAPP", "WEB"],
       participation_status: ["VALID", "DUPLICATE", "TOO_SOON", "OVER_LIMIT"],
+      permission_kind: ["READ", "WRITE"],
       permission_scope: ["organization", "company"],
       person_identifier_kind: ["PHONE", "EMAIL", "CPF", "PASSPORT"],
       promotion_question_kind: ["QUIZ", "MULTIPLE_CHOICE", "ESSAY"],

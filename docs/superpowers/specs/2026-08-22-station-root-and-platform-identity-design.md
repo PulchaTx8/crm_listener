@@ -513,10 +513,20 @@ per Station, so "block across the group" stops being a concept and becomes, at
 most, a screen convenience that applies the same block at each Station the
 operator administers. That is a real loss of function and is recorded as one.
 
-**`is_owner()` becomes `is_station_owner()`.** It reads `organization_memberships`
-for `role = 'owner'` today and is called **42 times across 19 migrations**. It
-becomes a read of `company_memberships`. This is the single largest mechanical
-change in the staff work, and it is bounded: a rename plus a table swap.
+**The ownership helpers are NOT inverted, and that sentence replaces one that
+said they were.** This section used to call for `is_owner()` to become
+`is_station_owner()` across its 42 call sites. Measuring stopped it: **every one
+of the nine policies that call an ownership helper is a `SELECT`**, so inverting
+the family would have narrowed *reads* — exactly what D19 keeps. The group's
+owner must go on seeing the archived promotion and the report; what they lost in
+P5a is writing.
+
+**A Station's owner is a new question instead**, asked only where writing is
+decided. `company_memberships.is_owner` (P5a, `0278`) carries it, `role_id`
+becomes optional beside it — an owner needs no role, and a CHECK keeps the rule
+the old NOT NULL was really carrying: a membership is either an owner or a role.
+`has_permission_for` admits a Station's owner to every permission at that Station
+and at no other.
 
 **Role definitions must become Station-owned, and that duplicates.** Today
 `roles_name_unique` is `(organization_id, lower(name))`: the definition is the
@@ -895,7 +905,9 @@ that comes after it.
 | **P2** | **The platform person.** `people`, the claim table its identifiers live in **as rows from the start**, `members.person_id`, the backfill under D20, and resolve-or-create inside `0061_member_resolution_cores.sql`. | The foundation. Lands in one shared body, which is why the four doors cannot drift. The claim table is built here rather than in P3 because D2 and D13 both already describe an identifier as a claim: columns first would be built and demolished. |
 | **P3** | **The identity key.** `enable_identity_key_check`, the key stored against each claim, `user_changed_number` and the follow/split it drives, and silence demotion. | Needs P2's claims to attach a key to. P2 gives a claim a validity; this gives it evidence. |
 | **P4** | **Authorization.** The (person, Station) row, implicit at the origin, created by interaction; MENU removed. | Needs P2. Visibility still reads the old axis at this point. |
-| **P5** | **Staff and ownership.** `is_owner` becomes `is_station_owner` across 42 call sites; `company_memberships` becomes the grant; roles descend with platform templates; invitations go Station-scoped and blind; the six permissions descend; the Organization-wide block is retired; and `has_permission` absorbs the computed Organization read grant (D19) with the read/write mark on the catalogue that makes it safe. | Depends on nothing in P2-P4 and could run straight after P1. It must precede P6, so the listener policies are rewritten once against the converted helper rather than twice, and P7, which takes away the argument `is_owner` reads. |
+| **P5a** | **The group reads and does not write, and a Station gains owners.** The `permissions` catalogue gains a READ/WRITE mark; `has_permission_for`'s Organization branch narrows to reads; `company_memberships.is_owner` carries D17's Station owner, admitted to everything at their own Station; every existing Organization owner is grandfathered into one at each of their Stations, and `add_company` names them going forward. | **D19 is a restriction, not an addition.** The Station owner had to arrive with it: the e2e proved that the narrowing alone leaves every Station operable by nobody, in forty tests and six permissions. Must precede P6, whose listener policies test the same function. |
+| **P5b** | **Staffing a Station.** `users.manage`, `users.invite` and `roles.manage` descend from Organization to Station; role definitions become Station-owned, seeded from platform templates; `invitations` goes Station-scoped and answers identically for an address new to the platform and one already on it; the console screens follow. | Smaller than it was: P5a took the Station owner, and the ownership helpers turned out not to need inverting at all. What is left is who a Station's owner may bring in, and how. |
+| **P5c** | **The Organization-wide listener block is retired** (D17), and the screens that offered it say what replaced it. | Small, and last of the three because it is a removal rather than a change. |
 | **P6** | **Visibility inversion.** RLS reads the authorization; person data becomes a window; relationship data stays. | The dangerous one. Needs P4 proven and P5 landed, since the listener policies it rewrites also test ownership. |
 | **P7** | **Tenancy inversion.** Station becomes the root; the 43 tables drop `organization_id`; the 92 composite keys go; `companies.organization_id` becomes optional. | Deliberately after visibility and ownership, so only one axis is in motion at a time. |
 | **P8** | **Lifecycle.** Suspension and archiving semantics, the archive cascade, the orphan clock, `anonymize_member` firing, archiving moved behind the platform admin. | Needs P4's authorizations to end. |
@@ -905,7 +917,6 @@ that comes after it.
 | **P12** | **Frozen consolidation.** Period close, composition recorded, dashboards reading snapshots for closed periods. | Independent of the identity work; can run in parallel from P7 onward. |
 | **P13** | **The move.** One column, the staff list presented for confirmation, and the screen living in the platform console. | The original Block 31b, reduced to this. Needs P5 and P7. |
 
-**P1 shipped** (PR #97). **P0, P2 and P5 are all free to start.** P5 depends on
+**P1 and P2 shipped** (PRs #97, #98). **P0 and P5a are free to start.** P5a depends on
 none of the identity work, only on `company_memberships`, which `0007`, `0013`,
-`0017` and `0018` already populate; and P2 stopped waiting on the census when D20
-ruled the question it existed to answer. Every §6 item is settled.
+`0017` and `0018` already populate. Every §6 item is settled.

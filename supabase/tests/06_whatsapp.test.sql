@@ -550,7 +550,8 @@ select is(
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000005b2', 'owner-5a@example.test'),
-  ('00000000-0000-0000-0000-0000000005b3', 'delegate-5a@example.test');
+  ('00000000-0000-0000-0000-0000000005b3', 'delegate-5a@example.test'),
+  ('00000000-0000-0000-0000-0000000005b4', 'linker-5a@example.test');
 insert into public.organization_memberships (user_id, organization_id, role) values
   ('00000000-0000-0000-0000-0000000005b2', '00000000-0000-0000-0000-0000000005f1', 'owner');
 
@@ -564,6 +565,25 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
   ('00000000-0000-0000-0000-0000000005b3', '00000000-0000-0000-0000-0000000005c1',
    '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005e1');
 
+-- The linker holds members.create AND members.view at Station 5a Two, which is
+-- where the two link assertions below act.
+--
+-- IT USED TO BE THE OWNER, and 0277 is why it is not. Until then a group's owner
+-- passed every permission at every Station of the group, so the fixture needed
+-- nobody with a role -- which meant the assertions were exercising a blanket
+-- power rather than the door they are about. D19 removed the blanket, and the
+-- right answer is a caller entitled to link rather than a looser rule: what
+-- these two assert is that linking works across Stations, not who may do it.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000005e2', '00000000-0000-0000-0000-0000000005f1',
+   'Station 5a Two Linker');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000000005e2', 'members.create'),
+  ('00000000-0000-0000-0000-0000000005e2', 'members.view');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000000005b4', '00000000-0000-0000-0000-0000000005c2',
+   '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005e2');
+
 -- 1. A pair already linked is REFUSED, not silently succeeded a second time.
 --    src/app/(app)/members/actions.ts calls link_member_to_company
 --    "idempotent-refusing, not idempotent-succeeding" in those words, and the
@@ -575,7 +595,7 @@ insert into public.members (id, organization_id, full_name) values
   ('00000000-0000-0000-0000-0000000005d2', '00000000-0000-0000-0000-0000000005f1',
    'Ouvinte Vinculavel');
 
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000005b2", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000005b4", "role": "authenticated"}';
 
 -- The first link must succeed, or the refusal below would pass for the wrong
 -- reason -- a link that never happened refuses the second call just as loudly.
