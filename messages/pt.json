@@ -1636,6 +1636,8 @@
     "checkTheForm": "Revise o formulário."
   },
   "promotions": {
+    "notVisible": "Não visível",
+    "theProgrammeNameNeedsMusicView": "Esta promoção pertence a um Programa cujo nome exige a permissão music.view.",
     "promotions": "Promoções",
     "showing": "Mostrando",
     "ofTheStationsYouCanReach": "das Emissoras que você alcança. Busque pelo nome para chegar a uma que não está listada.",

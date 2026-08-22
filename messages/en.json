@@ -1636,6 +1636,8 @@
     "checkTheForm": "Check the form."
   },
   "promotions": {
+    "notVisible": "Not visible",
+    "theProgrammeNameNeedsMusicView": "This promotion belongs to a Programme whose name needs the music.view permission.",
     "promotions": "Promotions",
     "showing": "Showing",
     "ofTheStationsYouCanReach": "of the Stations you can reach. Search by name to reach one that is not listed.",

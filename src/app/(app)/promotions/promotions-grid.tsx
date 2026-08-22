@@ -44,7 +44,9 @@ import { RegisterPromotionForm } from './register-promotion-form';
 /** How many columns the empty-state row has to span, actions included. */
 // Seven since Block 14 added the picture. Read by the empty state's colSpan,
 // which is why it is a constant rather than a number typed twice.
-const COLUMN_COUNT = 7;
+// Eight since Block 31a added the Programme column. Read by the empty state's
+// colSpan, and a number that has to be raised by hand with every column.
+const COLUMN_COUNT = 8;
 
 const INITIAL_CANCEL: CancelPromotionState = { status: 'idle' };
 const INITIAL_ARCHIVE: ArchivePromotionState = { status: 'idle' };
@@ -179,6 +181,7 @@ export function PromotionsGrid({
               {/* No sort link, and that is deliberate: Situation is computed
                   from three columns, and a keyset cursor must compare exactly
                   the column it orders by. It filters instead. */}
+              <TableHead>{t('programme')}</TableHead>
               <TableHead>{t('situation')}</TableHead>
               <TableHead>{t('hashtag')}</TableHead>
               <TableHead>{t('quiz')}</TableHead>
@@ -213,6 +216,27 @@ export function PromotionsGrid({
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm">
                       {formatWindow(promotion.startsAt, promotion.endsAt, timeZone)}
+                    </TableCell>
+                    {/*
+                      D6. THREE STATES, NOT TWO. An empty cell would claim this
+                      promotion has no Programme, which for a caller without
+                      `music.view` is false — the NAME is what they cannot read,
+                      not the link. `showId` comes back either way, so the two
+                      are told apart here rather than collapsed into one dash.
+                    */}
+                    <TableCell className="text-sm" data-testid="promotion-programme">
+                      {!promotion.showId ? (
+                        '—'
+                      ) : promotion.showName ? (
+                        promotion.showName
+                      ) : (
+                        <span
+                          className="text-muted-foreground"
+                          title={t('theProgrammeNameNeedsMusicView')}
+                        >
+                          {t('notVisible')}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <span
