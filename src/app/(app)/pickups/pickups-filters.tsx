@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
+import { RefreshButton } from '@/components/ui/refresh-button';
 import {
   ANY_STATUS,
   DEFAULT_PICKUP_STATUS,
@@ -162,6 +163,7 @@ export function PickupsFilters({
         >
           {t('clearFilters')}</Link>
       )}
+      <RefreshButton />
     </div>
   );
 }

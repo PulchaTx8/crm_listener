@@ -462,6 +462,11 @@
     "auditDescription": "Lo que se ha hecho en esta Organización, por quién y cuándo. Filtrado por lo que usted puede leer."
   },
   "pickups": {
+    "close": "Cerrar",
+    "member": "Miembro",
+    "openTheMember": "Abrir el miembro",
+    "openThisPrize": "Abrir este premio",
+    "thePrize": "Premio",
     "pickups": "Retiros",
     "showing": "Mostrando",
     "ofTheStationsYouCanReach": "de las Emisoras que usted alcanza. Busque por nombre para llegar a una que no esté listada.",

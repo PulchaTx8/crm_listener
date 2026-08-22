@@ -462,6 +462,11 @@
     "auditDescription": "What has been done in this Organization, by whom, and when. Filtered by what you may read."
   },
   "pickups": {
+    "close": "Close",
+    "member": "Member",
+    "openTheMember": "Open the member",
+    "openThisPrize": "Open this prize",
+    "thePrize": "Prize",
     "pickups": "Pickups",
     "showing": "Showing",
     "ofTheStationsYouCanReach": "of the Stations you can reach. Search by name to reach one that is not listed.",
