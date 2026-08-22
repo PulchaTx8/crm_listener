@@ -109,7 +109,11 @@ export function MembersGrid({
       const row: MemberListRow = {
         id: detail.id,
         fullName: detail.fullName,
-        phone: detail.phone,
+        // The DIALOG holds the whole number — it is the screen that administers
+        // this listener, and it shows every field unmasked. The LIST is what
+        // stopped carrying it (Block 31a, D1), so the row built here carries
+        // four digits like every row the server sent.
+        phoneLast4: detail.phone ? detail.phone.slice(-4) : null,
         email: detail.email,
         cpfLastDigits: detail.cpfLastDigits,
         birthDate: detail.birthDate,
@@ -138,7 +142,7 @@ export function MembersGrid({
         row: {
           id: detail.id,
           fullName: detail.fullName,
-          phone: detail.phone,
+          phoneLast4: detail.phone ? detail.phone.slice(-4) : null,
           email: detail.email,
           cpfLastDigits: detail.cpfLastDigits,
           birthDate: detail.birthDate,
@@ -221,7 +225,11 @@ export function MembersGrid({
                         {name}
                       </button>
                     </TableCell>
-                    <TableCell>{member.phone ?? '—'}</TableCell>
+                    {/* D1. Four digits, written the way the CPF cell one column
+                        over already writes its own. */}
+                    <TableCell data-testid="member-phone">
+                      {member.phoneLast4 ? `···${member.phoneLast4}` : '—'}
+                    </TableCell>
                     <TableCell>{member.email ?? '—'}</TableCell>
                     <TableCell>{member.cpfLastDigits ? `···${member.cpfLastDigits}` : '—'}</TableCell>
                     <TableCell>{age === null ? '—' : age}</TableCell>
