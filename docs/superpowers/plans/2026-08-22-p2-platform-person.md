@@ -101,7 +101,7 @@ attaches a claim without going through resolution; it stays written for that day
 - Produces: `public.person_identifiers (id uuid pk, person_id uuid → people(id), kind person_identifier_kind, value text, valid_from timestamptz, valid_to timestamptz, created_at timestamptz)`
 - Produces: unique index `person_identifiers_live_unique on (kind, value) where valid_to is null`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `supabase/tests/76_platform_person.test.sql`:
 
@@ -191,7 +191,7 @@ select * from finish();
 rollback;
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -201,7 +201,7 @@ Expected: `76_platform_person` fails at the first assertion —
 `has_table('public','people')` reports the table does not exist. Everything after
 it errors out of the same cause.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 Create `supabase/migrations/0272_platform_person.sql`:
 
@@ -276,7 +276,7 @@ revoke all on public.people from anon, authenticated;
 revoke all on public.person_identifiers from anon, authenticated;
 ```
 
-- [ ] **Step 4: Run it and watch it pass**
+- [x] **Step 4: Run it and watch it pass**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -285,7 +285,7 @@ npm run db:reset && npm run db:test
 Expected: `76_platform_person` passes all 9, and every other file is unchanged —
 nothing reads these tables yet.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/0272_platform_person.sql supabase/tests/76_platform_person.test.sql
@@ -308,7 +308,7 @@ git commit -m "feat(p2): the platform person, holding identity and no attribute 
 - Produces: `public.members.person_id uuid references public.people (id)`, nullable at this stage
 - Preserves: `apply_member_creation`'s signature and return type exactly, so its four callers are untouched
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Raise `select plan(9);` to `select plan(15);` and append before `select * from finish();`:
 
@@ -367,7 +367,7 @@ select is(
   'and a listener registered through the shared core comes out with a person attached');
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -376,7 +376,7 @@ npm run db:reset && npm run db:test
 Expected: `76_platform_person` fails from the first new assertion with
 `function public.resolve_or_attach_person(...) does not exist`.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 Create `supabase/migrations/0273_person_resolution.sql`. Two parts.
 
@@ -537,7 +537,7 @@ needed a drop because it changed the signature; this does not change it.
 Expected: two hunks — that keyword, and the comment plus the column plus the
 value. Nothing removed.
 
-- [ ] **Step 4: Run it and watch it pass**
+- [x] **Step 4: Run it and watch it pass**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -549,7 +549,7 @@ Expected: `76_platform_person` passes all 15. **Every other file must also pass*
 A failure anywhere else means the copy lost something; diff before changing
 anything.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/0273_person_resolution.sql supabase/tests/76_platform_person.test.sql
@@ -568,7 +568,7 @@ git commit -m "feat(p2): every door attaches a person, in the one body all four 
 - Consumes: `public.resolve_or_attach_person(text, text, text, text)` from Task 2
 - Produces: every live `members` row carrying a `person_id`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Raise the plan to `select plan(19);` and append before `select * from finish();`:
 
@@ -629,7 +629,7 @@ select is(
   1,
   'and the shared telephone is one live claim, not two');
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -641,7 +641,7 @@ first assertion, reporting a non-zero count of live profiles with no person,
 because `0274` has not been written and the two fixtures above were deliberately
 detached.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 Create `supabase/migrations/0274_person_backfill.sql`:
 
@@ -692,7 +692,7 @@ end $$;
 -- profile that replaced them.
 ```
 
-- [ ] **Step 4: Run it and watch it pass**
+- [x] **Step 4: Run it and watch it pass**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -700,7 +700,7 @@ npm run db:reset && npm run db:test
 
 Expected: `76_platform_person` passes all 19, everything else unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/0274_person_backfill.sql supabase/tests/76_platform_person.test.sql
@@ -719,7 +719,7 @@ git commit -m "feat(p2): the backfill, which never reaches D20's fallback and sa
 **Interfaces:**
 - Produces: `members.person_id` `not null`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Raise the plan to `select plan(20);` and append before `select * from finish();`:
 
@@ -731,7 +731,7 @@ select col_not_null('public', 'members', 'person_id',
   'and from here a profile cannot exist without a person');
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -739,7 +739,7 @@ npm run db:reset && npm run db:test
 
 Expected: the assertion reports the column is nullable.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 Create `supabase/migrations/0275_person_id_required.sql`:
 
@@ -759,7 +759,7 @@ alter table public.members
   alter column person_id set not null;
 ```
 
-- [ ] **Step 4: Run it and watch it pass**
+- [x] **Step 4: Run it and watch it pass**
 
 ```bash
 npm run db:reset && npm run db:test
@@ -770,7 +770,7 @@ is the real assertion here. Any file that fails now names a door that registers 
 listener without going through `apply_member_creation`, and that door is the
 finding.
 
-- [ ] **Step 5: Regenerate the types and run the rest of the gates**
+- [x] **Step 5: Regenerate the types and run the rest of the gates**
 
 ```bash
 npm run db:types
@@ -781,7 +781,7 @@ Expected: `database.types.ts` gains `people` and `person_identifiers`; all three
 gates pass. The types file is generated — never hand-edit it to make something
 compile.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add supabase/migrations/0275_person_id_required.sql supabase/tests/76_platform_person.test.sql src/lib/supabase/database.types.ts
@@ -808,3 +808,41 @@ git commit -m "feat(p2): a profile cannot exist without a person, and now the sc
       no longer gates anything (D20), but the number of cross-Organization
       collisions is the size of what `0274` just did, and it is worth knowing
       what happened rather than inferring it.
+
+---
+
+## What execution changed, recorded because the plan was wrong about it
+
+**The copy-forward was aimed at the wrong file, and then stopped being needed at
+all.** `apply_member_creation`'s live definition is in `0213_country.sql:210`,
+not `0061`: `0213` drops and recreates it with a twentieth parameter, using
+`create function` rather than `create or replace`, so the grep that locates every
+other copied-forward function in this repository misses it. Copying `0061`
+forward would have reverted the country work with every test still green, and the
+plan's own diff step would not have caught it because it diffed the same wrong
+file. Settled against `pg_proc` rather than the migration list. Then the trigger
+below removed the copy entirely, so the risk is gone rather than managed.
+
+**Resolution moved from the shared core to a trigger, and the schema gained its
+second one.** `0275`'s NOT NULL broke twenty-odd test files that insert into
+`members` directly — 1349 assertions ran where 2556 had. Wiring resolution into
+`apply_member_creation` makes the guarantee a convention, and a convention cannot
+carry a NOT NULL. A column default was rejected as lighter and wrong: it satisfies
+the constraint by minting a person with no claim, so an insert carrying a
+telephone becomes invisible to deduplication, silently and permanently.
+
+**The backfill became a function.** As a `DO` block it was untestable — on a fresh
+database the migration has nothing to do, so a test re-typing its `UPDATE` passed
+whether or not the file existed. `backfill_member_person_ids()` is callable from a
+test and, because it is idempotent by its own predicate, resumable if a production
+run stops on a statement timeout.
+
+**Its test then had to recreate a world that no longer exists.** After `0275` the
+state the backfill repairs is unreachable, so the test drops the NOT NULL inside
+its own transaction and lets pgTAP's rollback restore it.
+
+**Two of my own assertions measured nothing.** `apply_member_creation` writes, and
+calling it inside a `where` clause ran it once per row of `members`, matching none
+and reporting `have: NULL`. And the backfill assertion described above.
+
+**Final state:** 2558 pgTAP, 1772 vitest, lint clean, build clean.
