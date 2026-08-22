@@ -1,5 +1,5 @@
 begin;
-select plan(4);
+select plan(9);
 
 -- ---------------------------------------------------------------------------
 -- P5b. A STATION'S OWNER STAFFS THEIR OWN STATION.
@@ -78,6 +78,76 @@ select lives_ok($$
     '00000000-0000-0000-0000-0000000078c1',
     '00000000-0000-0000-0000-0000000078a2')
 $$, 'and can take that access away again');
+
+
+-- ---------------------------------------------------------------------------
+-- THE LEAK, and it is the reason this block exists. create_invitation raises,
+-- in these words, "this e-mail already has an account on the platform" -- to
+-- anybody who may invite. That is the existence D17 says a Station must never
+-- learn about its people, and it is live today, across the whole platform
+-- rather than merely across this group.
+--
+-- The fix is not a quieter message. Under D17 a user belongs to the platform and
+-- may be staff at any number of Stations, in any number of Organizations, so
+-- inviting an address that already has an account is an ORDINARY operation.
+-- Making it succeed leaves nothing to tell the two cases apart.
+-- ---------------------------------------------------------------------------
+select lives_ok($$
+  select public.create_invitation(
+    '00000000-0000-0000-0000-0000000078f1',
+    'brand-new-p5b@example.test',
+    false,
+    '00000000-0000-0000-0000-0000000078e1',
+    array['00000000-0000-0000-0000-0000000078c1']::uuid[],
+    repeat('a', 64),
+    7)
+$$, 'a Station owner invites into the Station they own');
+
+select is(
+  (select count(*)::int from public.invitations
+    where email = 'brand-new-p5b@example.test' and status = 'pending'),
+  1,
+  'and the invitation is really there');
+
+-- And the gate descended with it: an invitation is TO Stations, so those are the
+-- ones the caller must be able to invite to.
+select throws_ok($$
+  select public.create_invitation(
+    '00000000-0000-0000-0000-0000000078f1',
+    'somebody-else-p5b@example.test',
+    false,
+    '00000000-0000-0000-0000-0000000078e1',
+    array['00000000-0000-0000-0000-0000000078c2']::uuid[],
+    repeat('b', 64),
+    7)
+$$, '42501', null,
+   'and a Station''s owner cannot invite into the sister Station they do not own');
+
+select is(
+  (select count(*)::int from public.invitations
+    where email = 'somebody-else-p5b@example.test'),
+  0,
+  'and that refusal wrote nothing');
+
+
+-- THE LEAK IS STILL HERE, pinned rather than pretended away. create_invitation
+-- announces that an address exists on the platform -- the existence D17 forbids
+-- -- and is simultaneously the guard that stops an emailed link from setting a
+-- password on an account that already exists. Closing it means teaching
+-- acceptance to require signing in, which is an application change with a
+-- security property and its own block. Asserted here so that whoever does that
+-- work sees this line go red and knows exactly where to look.
+select throws_ok($$
+  select public.create_invitation(
+    '00000000-0000-0000-0000-0000000078f1',
+    'newcomer-p5b@example.test',
+    false,
+    '00000000-0000-0000-0000-0000000078e1',
+    array['00000000-0000-0000-0000-0000000078c1']::uuid[],
+    repeat('c', 64),
+    7)
+$$, '23505', null,
+   'and an address that already has an account is STILL refused: leak and guard in one');
 
 reset request.jwt.claims;
 
