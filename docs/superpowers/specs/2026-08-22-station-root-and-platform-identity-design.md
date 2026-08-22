@@ -51,7 +51,7 @@ the key itself, so nothing can change owner inside one transaction.
 | --- | --- |
 | Platform (PulchaTX) | Holds one row per person. That row carries **identifiers only** — no name, no birthday, no address. |
 | Station (`companies`) | The tenancy root. Owns every operational record, its own listener profiles, its own staff access. |
-| Organization | A grouping for consolidated results. Owns nothing operational. |
+| Organization | A grouping. Its users read every record of every Station in it and change nothing; it owns no operational record of its own. |
 | Authorization | One row per (person, Station). It is what makes a person visible to a Station, and the person grants it by interacting. |
 
 Three sentences carry the whole thing:
@@ -61,8 +61,9 @@ Three sentences carry the whole thing:
 2. **The person's own data is a live window** the Station reads through that
    authorization; **the relationship's data belongs to the Station** and does not
    move or vanish.
-3. **The Organization sees results, not records** — and the results of a period
-   are frozen as they were apportioned at the time.
+3. **The Organization reads everything and changes nothing** — every record of
+   every Station in it, and no write at all — while the results of a period are
+   frozen as they were apportioned at the time.
 
 ---
 
@@ -76,8 +77,10 @@ Three sentences carry the whole thing:
   worst thing this model could accidentally build.
 - **No shared message consent.** Receiving a person's name does not authorize
   messaging them. Consent is per relationship and every Station collects its own.
-- **No cross-Station reporting for anyone but the person.** A Station never sees
-  which other Stations a person authorized. Neither does an Organization.
+- **No reach outside the group.** An Organization's users read everything in its
+  own Stations (D19) and nothing whatever about a Station outside it. A Station
+  never sees which other Stations a person authorized, and neither does an
+  Organization.
 - **No golden record.** There is no single authoritative name, birthday or
   address. Each Station keeps the profile it collected. The platform row holds
   identifiers and nothing else, which is what makes this true by construction
@@ -340,9 +343,10 @@ Half the machinery exists — a `report_runs` row is a snapshot by nature — an
 is missing is the dashboard reading the frozen record for closed periods and
 computing only the open one.
 
-**Ruled by D17:** the group never reaches records by owning the group. It reaches
-them only through somebody who is staff of a Station, and of a Station that has
-left it keeps numbers alone.
+**Ruled by D19:** while a Station is in the group, the group's users read its
+records live, because the grant is computed from present membership. Of a Station
+that has left, they keep the frozen numbers and nothing else — the live read ends
+in the same instant the column changes.
 
 ### D12 — No BSUID. Identity is the pair (number, identity key)
 
@@ -543,15 +547,13 @@ owner's ruling of 2026-08-22 (the operation prints the current rules first) and
 inverts its mechanism: it prints them so they can be kept deliberately, rather
 than recreated from nothing.
 
-**What an Organization owner is, after this.** They do not create a Station, do
-not archive one, do not reach a listener and do not open an operational screen.
-They read consolidated results and nothing else. `organization_memberships`
-survives as exactly that grant. This is much smaller than the word "owner"
-suggests today, and it is written here so that nobody restores the old reach by
-reflex.
+**What an Organization user is, after this**, is D19: they read everything in the
+group's Stations and change nothing. `organization_memberships` survives as
+exactly that grant, and carries no role, because roles are a Station's.
 
-This decision also settles what D11 could only derive: the group reaches records
-**only** through being staff of a Station, never by owning the group.
+What descends here is **authority**, not sight. A group user sees every screen; a
+group user changes nothing on any of them, and creates, archives and moves no
+Station (D18).
 
 ### D18 — A Station's lifecycle is a platform act, and a Station may have no group
 
@@ -581,6 +583,67 @@ nothing now: under D1 the 43 mechanical tables lose the column anyway, so the
 group survives in `companies` alone. And it makes representable something that is
 not representable today — **a Station leaving a group without joining another**,
 which is what happens when a group dissolves or a radio goes independent.
+
+### D19 — The Organization grant: one level, reads everything, changes nothing
+
+An Organization has users, plural, and they are all alike: **they read every
+record of every Station currently in the group, and they change nothing.** No
+Organization roles exist — membership in the group is the entire grant. That is
+what keeps D17 whole: a role is a Station's thing, and there is no second level
+for one to live at.
+
+Reading means reading: the dashboards and their Station pills, the reports, the
+audit trail, the listener grids and the listener cards. Changing means anything
+that alters what a Station does — creating or ending a promotion, touching
+inventory, editing settings, registering or blocking a listener, sending a
+message. None of that.
+
+**It lands inside `has_permission(code, company_id)`, and nowhere else.** That
+function answers true, additionally, when the caller is a user of the
+Organization the Station currently belongs to and the code is a read. Everything
+downstream keeps working untouched — the RLS policies, the pills, the 42501s, the
+`reports.consolidated` check the dashboards already make per Station.
+
+This has to be an ordinary answer from that function rather than a bypass around
+it, because the dashboards are **`SECURITY INVOKER` by design**: `0118` says the
+failure mode of a `DEFINER` aggregate is *"a count that silently includes rows the
+caller may not read, which looks like a number rather than a defect."* An
+Organization reader whose access lived outside RLS would produce exactly that
+number.
+
+**Computed from present membership, never materialized.** No access rows are
+written for group users at each Station. If they were, a Station leaving the group
+would need them cleaned up, and the seller keeps reading whatever the cleanup
+forgets. Computed, the access ends in the same instant `companies.organization_id`
+changes — nothing to run, nothing to forget.
+
+**The read set is a fact in the catalogue, not a list inside a function.** The
+`permissions` table gains a read/write mark, and the grant confers the read ones
+by data. A hand-kept list drifts the first time a block adds a write code and
+nobody remembers to exclude it; a column cannot.
+
+**"Changes nothing" means no operational state, not no `INSERT`.** Reading writes
+in this product: generating a report writes a `report_runs` row, revealing a
+masked field writes audit, an export writes audit. Those are permitted, and the
+audit ones are required. Read literally as "performs no insert", this rule would
+stop an Organization user from generating a report, which is the main thing they
+are there to do.
+
+**Masked fields follow the Station's rule exactly** — the group reader sees what a
+Station reader sees, reveals what a Station reader may reveal, and leaves the same
+audit row. No special case in either direction.
+
+**What this costs, stated rather than discovered.** When a Station joins a group,
+that group's readers see every listener it has, including people who authorized it
+years earlier under a previous owner. It is coherent: the person authorized *the
+Station*, and it is the same Station — what changed is who owns it. No fresh
+authorization is owed, because D5 governs a *different* Station asking, not the
+same Station under new ownership. This is the one place where "the data never
+changes controller" meets "a new set of humans may now read it", and the answer is
+that this is what buying a business with its customer list means.
+
+*Text to correct in passing:* `0010_permissions.sql:28` describes `audit.view` as
+*"Read the Organization's audit trail"*. Under D17 and D18 it is the Station's.
 
 ---
 
@@ -778,7 +841,7 @@ that comes after it.
 | **P2** | **The platform person.** The identifiers-only table, `members.person_id`, the backfill, resolve-or-create inside `0061_member_resolution_cores.sql`. | The foundation. Lands in one shared body, which is why the four doors cannot drift. |
 | **P3** | **Claims.** Telephone and e-mail become rows with validity and identity key; `enable_identity_key_check`; `user_changed_number` and follow/split. | Needs P2's person to attach to. |
 | **P4** | **Authorization.** The (person, Station) row, implicit at the origin, created by interaction; MENU removed. | Needs P2. Visibility still reads the old axis at this point. |
-| **P5** | **Staff and ownership.** `is_owner` becomes `is_station_owner` across 42 call sites; `company_memberships` becomes the grant; roles descend with platform templates; invitations go Station-scoped and blind; the six permissions descend; the Organization-wide block is retired. | Depends on nothing in P2-P4 and could run straight after P1. It must precede P6, so the listener policies are rewritten once against the converted helper rather than twice, and P7, which takes away the argument `is_owner` reads. |
+| **P5** | **Staff and ownership.** `is_owner` becomes `is_station_owner` across 42 call sites; `company_memberships` becomes the grant; roles descend with platform templates; invitations go Station-scoped and blind; the six permissions descend; the Organization-wide block is retired; and `has_permission` absorbs the computed Organization read grant (D19) with the read/write mark on the catalogue that makes it safe. | Depends on nothing in P2-P4 and could run straight after P1. It must precede P6, so the listener policies are rewritten once against the converted helper rather than twice, and P7, which takes away the argument `is_owner` reads. |
 | **P6** | **Visibility inversion.** RLS reads the authorization; person data becomes a window; relationship data stays. | The dangerous one. Needs P4 proven and P5 landed, since the listener policies it rewrites also test ownership. |
 | **P7** | **Tenancy inversion.** Station becomes the root; the 43 tables drop `organization_id`; the 92 composite keys go; `companies.organization_id` becomes optional. | Deliberately after visibility and ownership, so only one axis is in motion at a time. |
 | **P8** | **Lifecycle.** Suspension and archiving semantics, the archive cascade, the orphan clock, `anonymize_member` firing, archiving moved behind the platform admin. | Needs P4's authorizations to end. |
