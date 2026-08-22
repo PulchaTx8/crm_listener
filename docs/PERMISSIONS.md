@@ -217,7 +217,7 @@ file at the `is_owner_of_company` assertion and nowhere else.
 exist and are gated — and stops there, because pgTAP runs as superuser with a
 null `auth.uid()` where RLS never applies.
 
-## Programmes are gated on music, and the mismatch now has three surfaces (Blocks 18 → 27 → 30c → 30e)
+## Programmes are gated on music, and the mismatch now has four surfaces (Blocks 18 → 27 → 30c → 30e → 31a)
 
 `/shows` now lives under **Promotions** in the sidebar, directly after
 Pickups — its **third section in twelve blocks**. Audience filed it in Block
@@ -280,9 +280,26 @@ and is not). The mismatch is recorded where a reader will actually reach it:
 `src/app/(app)/shows/page.tsx`, the header of
 `supabase/migrations/0269_promotion_show_schedule.sql`, and this section.
 
+**Block 31a met it a fourth time and answered by SAYING LESS.** The Promotions
+grid gained a Programme column, and the embedded `shows(name)` it reads is cut by
+the same policy — so for an operator without `music.view` the name comes back
+null on every row, and an empty cell would claim the promotion has no Programme
+at all. `promotions.show_id` comes back regardless, which is what makes the two
+separable: the cell reads the name when it can, a muted **Not visible** when
+there IS a Programme whose name is out of reach, and a dash only when there is
+none. No door was opened: Block 30e opened one for a read with no alternative,
+and this cell had one.
+
+The four surfaces are now: the **screen** (a dead link), the **combobox** on a
+promotion's record (an empty list that looks like no data), the **band combo** on
+Participations (which would have been the same empty list, and is not, because
+`0269` reads around the gate), and the **Programme column** on the promotions
+list (which says what it cannot show).
+
 Closing it is a block of its own, and it should start by deciding what happens
-to roles that already exist. **The fourth surface should be the one that
-decides it** rather than the one that opens a fourth door.
+to roles that already exist. Three blocks in a row have now routed around it
+rather than deciding it, each time for a defensible local reason; the next one
+should decide.
 
 ## The listener card is governed by `members.view`, not a new permission (Block 30a)
 
