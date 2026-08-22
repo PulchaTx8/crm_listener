@@ -573,31 +573,43 @@ update public.companies
    set status = 'suspended'
  where id = '00000000-0000-0000-0000-000000000602';
 
--- 19. Suspended Station, the promotion hashtag: no_installation.
+-- 19-21. Suspended Station, all three hashtags: tenant_inactive, ONE WORD FOR
+--     ALL THREE since 0271.
+--
+--     These three used to expect two different answers for one cause. The
+--     promotion hashtag reached the widget gate and was refused there, so it
+--     said no_installation -- a true statement about a widget that was beside
+--     the point, at a Station that had simply stopped paying. Music and service
+--     could not match at all, because v_install carries their columns, so they
+--     fell to the diagnostic and said no_promotion, of a Station whose
+--     promotions were fine.
+--
+--     Neither word was reached before harm: 06_whatsapp measures what the
+--     promotion path did on its way to no_installation -- registered the
+--     listener, and for a REPEAT listener recorded the attempt and enqueued the
+--     reply that bills the lapsed Station, answering `recorded` while doing it.
+--     0271 tests the tenant's liveness once, above all three matches, so the
+--     three now agree and none of them writes anything first.
 select is(
   (select r ->> 'outcome'
      from (select pg_temp.ingest_hashtag(
              'wamid.SUSP-PROMO', '5511977776014', '#GANHEJA') as r) s),
-  'no_installation',
-  'a live promotion''s hashtag at a SUSPENDED Station answers no_installation, not link');
+  'tenant_inactive',
+  'a live promotion''s hashtag at a SUSPENDED Station answers tenant_inactive, before anything is written');
 
--- 20. Suspended Station, the music hashtag: no_promotion -- reachable ONLY
---     because of this fix's join to companies; before it, v_install was
---     found anyway (enabled stayed true) and this hashtag reached 'link'.
 select is(
   (select r ->> 'outcome'
      from (select pg_temp.ingest_hashtag(
              'wamid.SUSP-MUSIC', '5511977776015', '#TOCAAGORA') as r) s),
-  'no_promotion',
-  'the music hashtag at a SUSPENDED Station falls through to no_promotion, silently, now that v_install joins companies');
+  'tenant_inactive',
+  'the music hashtag at the same Station answers the same word, not no_promotion of promotions that are fine');
 
--- 21. Suspended Station, the service hashtag: same answer, same reason.
 select is(
   (select r ->> 'outcome'
      from (select pg_temp.ingest_hashtag(
              'wamid.SUSP-MENU', '5511977776016', '#MENUAJUDA') as r) s),
-  'no_promotion',
-  'the service hashtag at a SUSPENDED Station falls through to no_promotion, silently, now that v_install joins companies');
+  'tenant_inactive',
+  'and so does the service hashtag: one cause, one answer');
 
 -- Left active: nothing after this point in the file depends on Station A
 -- being suspended, and leaving it so would be an accident of test order

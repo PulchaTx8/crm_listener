@@ -410,12 +410,20 @@ select is(
 -- itself and a test of one proves nothing about the others. The outbox
 -- assertion is deliberate: an entry written and no message sent would still be
 -- a bill this Station must not receive.
+--
+-- 0271 MOVED THE ANSWER, not the behaviour. These three said no_installation
+-- until then, which was true of a widget and beside the point about a Station
+-- that had stopped paying -- and which the door also gave for reasons that had
+-- nothing to do with liveness, so the word could not tell the two apart. Now the
+-- tenant's liveness is tested once, above every hashtag match, and answers in
+-- its own name. What these cases prove is unchanged: nobody enters, nothing is
+-- written, nothing is sent.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.ingest('00000000-0000-0000-0000-0000000030eb', 'wamid.FAST-11',
                  '5511930000001', '#SUSPENSA', '303030303030303') ->> 'outcome',
-  'no_installation',
-  'a SUSPENDED Station enters nobody, however little is left to ask: the fast path tests tenant liveness itself now that it no longer sits behind the gate that used to');
+  'tenant_inactive',
+  'a SUSPENDED Station enters nobody, however little is left to ask, and says so in its own name since 0271');
 
 select is(
   (select count(*) from public.participations
@@ -432,14 +440,14 @@ select is(
 select is(
   pg_temp.ingest('00000000-0000-0000-0000-0000000030ec', 'wamid.FAST-12',
                  '5511930000001', '#BLOQUEADA', '303030303030304') ->> 'outcome',
-  'no_installation',
+  'tenant_inactive',
   'and a BLOCKED Organization answers the same for a Station of its own that is active: o.suspended_at is tested, not just the Station''s own status');
 
 select is(
   pg_temp.ingest('00000000-0000-0000-0000-0000000030ed', 'wamid.FAST-13',
                  '5511930000001', '#APAGADA', '303030303030305') ->> 'outcome',
-  'no_installation',
-  'and a SOFT-DELETED Station answers the same: c.deleted_at is the third column of the join, and until this case nothing here tested it');
+  'tenant_inactive',
+  'and a SOFT-DELETED Station answers the same: c.deleted_at is the third column of the test, and until this case nothing here tested it');
 
 -- ---------------------------------------------------------------------------
 -- D4, THE LAST DOOR OF ITEM 1b. A number nobody knows: the listener the
