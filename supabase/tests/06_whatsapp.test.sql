@@ -1,5 +1,5 @@
 begin;
-select plan(154);
+select plan(157);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -1599,23 +1599,30 @@ select is(
   1, 'but the listener is answered once: the reply is keyed on the message, so deciding it twice enqueues one row');
 
 -- ---------------------------------------------------------------------------
--- P1. A DEAD TENANT REGISTERS NOBODY.
+-- P1. A DEAD TENANT DOES NOTHING AT ALL.
 --
 -- Until 0271 the promotion hashtag reached the listener resolution and the
 -- pre-check with no liveness test of any kind: v_install's join carries
 -- c.deleted_at, c.status and o.suspended_at, and MUSIC and MENU cannot match
 -- without it, but the promotion select reads public.promotions straight off
--- company_id. So a Station suspended for non-payment went on registering
--- listeners, recording participations and enqueueing replies that Meta bills it
--- for -- 0267's own comment names this hole and says it is not closed there.
+-- company_id.
 --
--- LAST IN THE FILE ON PURPOSE: this section suspends the Station every
--- assertion above depends on. It puts both columns back before its own last
--- assertion, which is also the control -- without it, a fixture broken for some
--- unrelated reason would make the six above pass while proving nothing.
+-- TWO CASES, because they cost different things and only one of them was
+-- obvious. A stranger's first message registers a listener into a Station whose
+-- subscription has lapsed and stops there -- the entry itself is spared, since a
+-- first-timer passes the pre-check and leaves by the link path. A REPEAT
+-- listener's message goes through the pre-check, which records the attempt and
+-- enqueues the reply that tells them when their next chance is; that reply is
+-- the one Meta bills the lapsed Station for, and it is why this section exists
+-- rather than just the first four assertions.
 --
--- The phones are new to this file, so a member found under either one can only
--- have been created by the call under test.
+-- LAST IN THE FILE ON PURPOSE: it suspends the Station every assertion above
+-- depends on, and puts it back before the control at the end.
+--
+-- 5511977770001 and 5511977770002 are new to this file, so a member found under
+-- either can only have been created by the call under test. 5511988883333 is
+-- deliberately NOT new -- it is the listener with a Cinema entry already, which
+-- is the whole point of the repeat case.
 -- ---------------------------------------------------------------------------
 
 update public.companies
@@ -1641,17 +1648,50 @@ select is(
   0,
   'and records no participation');
 
+-- COUNTED OFF THE TABLE, not off pg_temp.confirmation: that helper is declared
+-- `returns public.outbox_messages` rather than `setof`, so it always yields
+-- exactly one row -- all nulls when it finds nothing -- and count(*) over it is
+-- the constant 1. An earlier draft of this assertion did that and measured
+-- nothing while looking like it measured the thing that matters most here.
 select is(
-  (select count(*)::int from pg_temp.confirmation('wamid.P1SUSPENDED')),
+  (select count(*)::int from public.outbox_messages
+    where provider = 'WHATSAPP'
+      and dedupe_key = pg_temp.wamid_hash('wamid.P1SUSPENDED') || ':confirmation'),
   0,
-  'and enqueues nothing for Meta to bill the Station for');
+  'and enqueues nothing');
+
+-- THE EXPENSIVE CASE. 5511988883333 already holds a Cinema entry at 12:00 (see
+-- the TOO_SOON section above), and Cinema's interval is six hours, so this
+-- message at 14:00 is a repeat inside the window: before 0271 the pre-check
+-- recorded the attempt and enqueued the "your next chance is at" reply, at a
+-- Station whose subscription had lapsed. That send is the bill.
+select is(
+  pg_temp.ingest('wamid.P1REPEAT', '5511988883333', '#REPETE',
+                 '2026-06-10T14:00:00Z') ->> 'outcome',
+  'tenant_inactive',
+  'a REPEAT listener at a SUSPENDED Station finishes tenant_inactive too');
+
+select is(
+  (select count(*)::int from public.participations p
+    join public.members m on m.id = p.member_id
+   where m.phone_normalized = '5511988883333'
+     and p.participated_at = '2026-06-10T14:00:00Z'),
+  0,
+  'and the pre-check records no attempt');
+
+select is(
+  (select count(*)::int from public.outbox_messages
+    where provider = 'WHATSAPP'
+      and dedupe_key = pg_temp.wamid_hash('wamid.P1REPEAT') || ':confirmation'),
+  0,
+  'and nothing is enqueued for Meta to bill the lapsed Station for');
 
 update public.companies
    set status = 'active'
  where id = '00000000-0000-0000-0000-0000000005c2';
 
 -- organizations_block_shape (0154) is `(suspended_at is null) = (suspended_by
--- is null)`: a block names who ordered it or it is not a block.
+-- is null)`: a block names who ordered it, or it is not a block.
 update public.organizations
    set suspended_at = now(),
        suspended_by = '00000000-0000-0000-0000-0000000005b1'
@@ -1669,6 +1709,9 @@ select is(
   0,
   'and registers no listener either');
 
+-- THE CONTROL, and the reason both updates above are undone. Without it, a
+-- fixture broken for some unrelated reason would make the eight above pass
+-- while proving nothing.
 update public.organizations
    set suspended_at = null,
        suspended_by = null
@@ -1679,7 +1722,6 @@ select isnt(
                  '2026-06-10T12:00:00Z') ->> 'outcome',
   'tenant_inactive',
   'and the very same message at the restored Station is not refused');
-
 
 select * from finish();
 rollback;
