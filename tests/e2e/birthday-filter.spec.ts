@@ -173,20 +173,21 @@ test('a birthday window crossing new year finds the two listeners either side of
   // and stays for that reason.
   await expect(page.getByText('Birthdays from')).toBeVisible();
 
-  // The year is a fixed placeholder the box renders against (members-filters.tsx,
-  // birthdayDayInput) and is sliced off before it reaches the URL — only the
-  // month and day travel. Each fill is followed by its own URL wait, for the
-  // same reason as above: the second box's onChange also reads this
-  // component's props, and firing it before the first box's navigation has
-  // landed would read a state that does not yet carry `bfrom`, dropping it
-  // from the URL the second navigation writes.
-  await page.getByTestId('member-date-from').fill('2000-12-20');
+  // BLOCK 31a, D4. Two selects per bound, and no year anywhere: the boxes that
+  // carried a placeholder year the filter threw away are gone from this mode.
+  //
+  // DAY FIRST, THEN MONTH, and the URL waits sit where they do because of it:
+  // `joinMonthDay` answers undefined until BOTH halves are chosen, so choosing
+  // the day alone sends no bound and the address does not change yet.
+  await page.getByTestId('member-birthday-from-day').selectOption('20');
+  await page.getByTestId('member-birthday-from-month').selectOption('12');
   await expect(page).toHaveURL(/bfrom=12-20/);
 
-  await page.getByTestId('member-date-to').fill('2000-01-05');
+  await page.getByTestId('member-birthday-to-day').selectOption('05');
+  await page.getByTestId('member-birthday-to-month').selectOption('01');
   await expect(page).toHaveURL(/bto=01-05/);
-  // Both ends of the window survived the second navigation, not just the one
-  // it just set.
+  // Both ends of the window survived the second navigation, not just the one it
+  // just set.
   await expect(page).toHaveURL(/bfrom=12-20/);
   await expect(page).toHaveURL(/dates=birthday/);
 
