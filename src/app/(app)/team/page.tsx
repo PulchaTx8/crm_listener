@@ -151,7 +151,7 @@ export default async function TeamPage({
     listRoles(organizationId),
     supabase
       .from('company_memberships')
-      .select('user_id, company_id, role_id')
+      .select('user_id, company_id, role_id, is_owner')
       .eq('organization_id', organizationId)
       .is('deleted_at', null),
   ]);
@@ -188,7 +188,7 @@ export default async function TeamPage({
         expiresAt: null,
         access: (links ?? [])
           .filter((l) => l.user_id === m.user_id)
-          .map((l) => ({ companyId: l.company_id, roleId: l.role_id })),
+          .map((l) => ({ companyId: l.company_id, roleId: l.role_id, isOwner: l.is_owner })),
       };
     }),
     ...(invitations ?? []).map((i) => ({

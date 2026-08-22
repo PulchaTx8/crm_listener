@@ -59,8 +59,14 @@ export interface TeamRow {
   /** The role this invitation was sent at. Null for a member row and for an owner invitation. */
   roleId: string | null;
   expiresAt: string | null;
-  /** Live company_memberships for this person, one per Station they can reach. */
-  access: { companyId: string; roleId: string }[];
+  /**
+   * Live company_memberships for this person, one per Station they can reach.
+   *
+   * roleId is null when they OWN that Station: 0278 made role_id optional
+   * because ownership is itself what says what they may do there, and every
+   * Organization owner became an owner of each of their Stations in 0280.
+   */
+  access: { companyId: string; roleId: string | null; isOwner: boolean }[];
 }
 
 export function displayPerson(row: TeamRow): string {
@@ -256,12 +262,15 @@ export function TeamRecordDialog({
                     assignedRoleId={
                       row.access.find((a) => a.companyId === station.id)?.roleId ?? null
                     }
+                    isStationOwner={
+                      row.access.find((a) => a.companyId === station.id)?.isOwner ?? false
+                    }
                     onAssigned={(roleId) =>
                       onPatched({
                         ...row,
                         access: [
                           ...row.access.filter((a) => a.companyId !== station.id),
-                          { companyId: station.id, roleId },
+                          { companyId: station.id, roleId, isOwner: false },
                         ],
                       })
                     }
@@ -337,6 +346,7 @@ function StationAccessRow({
   roles,
   userId,
   assignedRoleId,
+  isStationOwner,
   onAssigned,
   onRemoved,
 }: {
@@ -344,6 +354,8 @@ function StationAccessRow({
   roles: RoleOption[];
   userId: string;
   assignedRoleId: string | null;
+  /** They OWN this Station: no role says what they may do, ownership does. */
+  isStationOwner: boolean;
   onAssigned: (roleId: string) => void;
   onRemoved: () => void;
 }) {
@@ -371,6 +383,26 @@ function StationAccessRow({
       : removeState.status === 'error'
         ? removeState.message
         : null;
+
+  // AN OWNER IS NOT SOMEBODY WITH NO ROLE, and the selector below would say so:
+  // its empty option reads "no access", which for a Station's owner is exactly
+  // backwards -- they may do everything here. Ownership arrived in 0278 with
+  // role_id becoming optional, and every Organization owner became one at each
+  // of their Stations in 0280, so this is the ordinary case rather than an edge.
+  // No selector either: assigning a role to an owner would not change what they
+  // may do, and offering it would imply otherwise.
+  if (isStationOwner) {
+    return (
+      <div data-testid="station-access-row" className="flex flex-col gap-1 rounded-md border p-3">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="w-40 truncate text-muted-foreground">{station.name}</span>
+          <span data-testid="station-access-owner" className="font-medium">
+            {t('owner')}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div data-testid="station-access-row" className="flex flex-col gap-1 rounded-md border p-3">

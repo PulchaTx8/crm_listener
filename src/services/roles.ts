@@ -100,6 +100,11 @@ export async function listRoles(organizationId: string): Promise<RoleSummary[]> 
 
   const holders = new Map<string, number>();
   for (const row of memberships ?? []) {
+    // A Station's OWNER holds no role -- 0278 made role_id optional precisely
+    // so ownership could say what they may do without inventing one. They count
+    // toward no role's tally, and skipping them here is what keeps "reassign N
+    // holders first" honest: the owner is not a holder to reassign.
+    if (row.role_id === null) continue;
     holders.set(row.role_id, (holders.get(row.role_id) ?? 0) + 1);
   }
 
