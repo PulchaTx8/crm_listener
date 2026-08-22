@@ -778,15 +778,17 @@ that comes after it.
 | **P2** | **The platform person.** The identifiers-only table, `members.person_id`, the backfill, resolve-or-create inside `0061_member_resolution_cores.sql`. | The foundation. Lands in one shared body, which is why the four doors cannot drift. |
 | **P3** | **Claims.** Telephone and e-mail become rows with validity and identity key; `enable_identity_key_check`; `user_changed_number` and follow/split. | Needs P2's person to attach to. |
 | **P4** | **Authorization.** The (person, Station) row, implicit at the origin, created by interaction; MENU removed. | Needs P2. Visibility still reads the old axis at this point. |
-| **P5** | **Visibility inversion.** RLS reads the authorization; person data becomes a window; relationship data stays. | The dangerous one. Needs P4 in place and proven. |
-| **P6** | **Staff and ownership.** `is_owner` becomes `is_station_owner` across 42 call sites; `company_memberships` becomes the grant; roles descend with platform templates; invitations go Station-scoped and blind; the six permissions descend; the Organization-wide block is retired. | Must precede P7: after the tenancy inversion there is no `organization_id` left to pass to `is_owner`. |
+| **P5** | **Staff and ownership.** `is_owner` becomes `is_station_owner` across 42 call sites; `company_memberships` becomes the grant; roles descend with platform templates; invitations go Station-scoped and blind; the six permissions descend; the Organization-wide block is retired. | Depends on nothing in P2-P4 and could run straight after P1. It must precede P6, so the listener policies are rewritten once against the converted helper rather than twice, and P7, which takes away the argument `is_owner` reads. |
+| **P6** | **Visibility inversion.** RLS reads the authorization; person data becomes a window; relationship data stays. | The dangerous one. Needs P4 proven and P5 landed, since the listener policies it rewrites also test ownership. |
 | **P7** | **Tenancy inversion.** Station becomes the root; the 43 tables drop `organization_id`; the 92 composite keys go; `companies.organization_id` becomes optional. | Deliberately after visibility and ownership, so only one axis is in motion at a time. |
 | **P8** | **Lifecycle.** Suspension and archiving semantics, the archive cascade, the orphan clock, `anonymize_member` firing, archiving moved behind the platform admin. | Needs P4's authorizations to end. |
 | **P9** | **The person's surfaces.** Per-Station revocation in the Widget, the PulchaTX platform page, PulchaTX's own WABA. | Needs P4 and P8. |
 | **P10** | **Recovery and the clocks.** E-mail verification at first participation, two-channel recovery, the platform refresh clock. | Needs P3 and P9. |
 | **P11** | **Recognition with data.** Cross-Station authorization requests, the bounded attribute set, the indistinguishable refusal, both-sided audit. | The only block that opens a new disclosure. Last on purpose. |
 | **P12** | **Frozen consolidation.** Period close, composition recorded, dashboards reading snapshots for closed periods. | Independent of the identity work; can run in parallel from P7 onward. |
-| **P13** | **The move.** One column, the staff list presented for confirmation, and the screen living in the platform console. | The original Block 31b, reduced to this. Needs P6 and P7. |
+| **P13** | **The move.** One column, the staff list presented for confirmation, and the screen living in the platform console. | The original Block 31b, reduced to this. Needs P5 and P7. |
 
-**P0 and P1 can start immediately.** Nothing else should start before §6's open
-items are answered, because P2 onward encode them.
+**P0, P1 and P5 can start immediately** — P5 depends on none of the identity
+work, only on `company_memberships`, which `0007`, `0013`, `0017` and `0018`
+already populate. Nothing else should start before §6's open items are answered,
+because P2 onward encode them.
