@@ -1,5 +1,5 @@
 begin;
-select plan(20);
+select plan(22);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures. This file owns them: it needs TWO Organizations with a Station each,
@@ -147,6 +147,26 @@ select is(
   true,
   'and a listener registered through the shared core comes out with a person attached');
 
+-- THE GUARANTEE THE TRIGGER BUYS, and the reason it exists rather than a call
+-- inside the core: a plain insert -- a test fixture, a data-fixing migration, a
+-- future door written by somebody who did not read 0273 -- resolves too.
+insert into public.members (id, organization_id, full_name, phone)
+values ('00000000-0000-0000-0000-0000000076b9',
+        '00000000-0000-0000-0000-0000000076f2', 'Insercao Direta', '5511900000030');
+
+select is(
+  (select person_id from public.members where id = '00000000-0000-0000-0000-0000000076b9'),
+  (select m.person_id from public.members m join pg_temp.p2_created c on c.id = m.id),
+  'and a DIRECT insert resolves to the same person, without going through any door');
+
+
+-- THE GUARANTEE, asserted BEFORE the backfill section below, which drops it for
+-- the length of this transaction to reach a state 0275 has made unreachable.
+-- Until 0275 a door that forgot to resolve left a profile with no person and
+-- nothing in this schema noticed; from here the insert is refused, which is the
+-- difference between a convention and a rule.
+select col_not_null('public', 'members', 'person_id',
+  'a profile cannot exist without a person');
 
 -- ---------------------------------------------------------------------------
 -- THE BACKFILL, and D20. Profiles that already existed get a person each, and
@@ -168,6 +188,13 @@ insert into public.members (id, organization_id, full_name, phone) values
   -- could never take the NOT NULL.
   ('00000000-0000-0000-0000-0000000076b3', '00000000-0000-0000-0000-0000000076f1',
    'Sem Identificador', null);
+
+-- THE PRE-0275 WORLD, recreated for the length of this transaction. Once the
+-- NOT NULL is in place the state the backfill exists to repair is unreachable,
+-- so a test of it has to put that state back -- DDL is transactional in
+-- Postgres, and this file's own rollback undoes the drop. Anything else would be
+-- testing a function against a world it was never written for.
+alter table public.members alter column person_id drop not null;
 
 update public.members set person_id = null
  where id in ('00000000-0000-0000-0000-0000000076b1',
@@ -208,6 +235,7 @@ select isnt(
     where id = '00000000-0000-0000-0000-0000000076b3'),
   null,
   'and a profile with no identifier at all still gets a person, with no claim');
+
 
 select * from finish();
 rollback;
