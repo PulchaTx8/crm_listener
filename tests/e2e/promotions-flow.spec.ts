@@ -159,6 +159,12 @@ test('the promotion record opens over a list that is never re-queried', async ({
   // Sorted by name so that a re-queried list would visibly re-order.
   await ownerPage.goto(`/promotions?companyId=${station.id}&sort=name`);
   await expect(ownerPage.getByTestId('promotion-row')).toHaveCount(3);
+
+  // BLOCK 31a. A promotion with no Programme says so with a dash rather than
+  // with an empty cell. A READ, deliberately: the Refresh button is exercised
+  // at the very end of this journey, because pressing it is a list re-query and
+  // the counter this test is built around forbids exactly that.
+  await expect(ownerPage.getByTestId('promotion-programme').first()).toHaveText('—');
   await expect(ownerPage.locator('[data-testid="promotion-row"]').first()).toContainText(
     promotionNames[0]!,
   );
@@ -260,6 +266,16 @@ test('the promotion record opens over a list that is never re-queried', async ({
   // The row kept its place through all of it — including the one render above.
   await expect(ownerPage.locator('[data-testid="promotion-row"]').first()).toContainText(renamed);
   await expect(ownerPage.getByTestId('promotion-row')).toHaveCount(3);
+
+  // BLOCK 31a. Refresh, AFTER the counter has had its say: pressing it is a
+  // list re-query on purpose, which is the one thing every assertion above
+  // exists to forbid. It keeps the address — and therefore the filters — because
+  // `router.refresh()` re-runs the Server Components for the current route
+  // rather than navigating anywhere.
+  const addressBefore = ownerPage.url();
+  await ownerPage.getByTestId('refresh').click();
+  await expect(ownerPage.getByTestId('promotion-row')).toHaveCount(3);
+  expect(ownerPage.url()).toBe(addressBefore);
 
   await ownerContext.close();
 });

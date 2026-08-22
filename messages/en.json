@@ -462,6 +462,11 @@
     "auditDescription": "What has been done in this Organization, by whom, and when. Filtered by what you may read."
   },
   "pickups": {
+    "close": "Close",
+    "member": "Member",
+    "openTheMember": "Open the member",
+    "openThisPrize": "Open this prize",
+    "thePrize": "Prize",
     "pickups": "Pickups",
     "showing": "Showing",
     "ofTheStationsYouCanReach": "of the Stations you can reach. Search by name to reach one that is not listed.",
@@ -1106,6 +1111,21 @@
     "phone": "Phone",
     "eMail": "E-mail",
     "age": "Age",
+    "birthday": "Birthday",
+    "day": "Day",
+    "month": "Month",
+    "monthJanuary": "January",
+    "monthFebruary": "February",
+    "monthMarch": "March",
+    "monthApril": "April",
+    "monthMay": "May",
+    "monthJune": "June",
+    "monthJuly": "July",
+    "monthAugust": "August",
+    "monthSeptember": "September",
+    "monthOctober": "October",
+    "monthNovember": "November",
+    "monthDecember": "December",
     "city": "City",
     "blockState": "Block state",
     "actions": "Actions",
@@ -1235,6 +1255,8 @@
     "couldNotRevealThisField": "This field could not be revealed."
   },
   "participations": {
+    "member": "Member",
+    "openTheMember": "Open the member",
     "draw": "Draw",
     "draw2": "Draw —",
     "close": "Close",
@@ -1621,6 +1643,8 @@
     "checkTheForm": "Check the form."
   },
   "promotions": {
+    "notVisible": "Not visible",
+    "theProgrammeNameNeedsMusicView": "This promotion belongs to a Programme whose name needs the music.view permission.",
     "promotions": "Promotions",
     "showing": "Showing",
     "ofTheStationsYouCanReach": "of the Stations you can reach. Search by name to reach one that is not listed.",
@@ -1820,6 +1844,8 @@
     "rulesRequiredWhenADoorIsOpen": "The rules are required once entry by WhatsApp or on the website is on."
   },
   "music": {
+    "member": "Member",
+    "openTheMember": "Open the member",
     "closeRecord": "Close record",
     "recordSections": "Record sections",
     "loadingTheRecord": "Loading the record…",

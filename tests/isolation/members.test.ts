@@ -1118,6 +1118,80 @@ describe('members', () => {
     },
   );
 
+  describe('what the list sends to the browser', () => {
+    /**
+     * Block 31a, D1. The owner asked for four digits on the Members grid.
+     *
+     * ASSERTED ON THE ROW, NOT ON THE SCREEN, and that is the whole point of
+     * putting it here: a row that still carried the whole number would render
+     * identically once the column sliced it, and no screen test could tell the
+     * two apart. What Block 30a's 0254 established for the other three screens
+     * is that the number must not TRAVEL, and travelling is a property of the
+     * payload rather than of the pixels.
+     */
+    it('sends four digits of a telephone number, and never the number', async () => {
+      const label = `last4-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const owner = await signInAs(customer.email, customer.password);
+      const token = await accessTokenFor(owner);
+
+      await createMemberAs(customer, customer.companyId, {
+        fullName: `${label} Phone`,
+        phone: '+5598999884321',
+      });
+
+      const page = await listOrganizationMembers(
+        {
+          organizationId: customer.organizationId,
+          sort: 'created',
+          direction: 'desc',
+          cursor: null,
+          cursorSide: 'after',
+        },
+        token,
+      );
+
+      const row = page.rows.find((r) => r.fullName === `${label} Phone`);
+      expect(row?.phoneLast4).toBe('4321');
+      expect(row).not.toHaveProperty('phone');
+      // The whole row, serialised, is what a Server Component hands the browser.
+      expect(JSON.stringify(row)).not.toContain('999884321');
+    });
+
+    /**
+     * The half of D1 that would be easy to break while making the half above
+     * true: narrowing what comes back must not narrow what can be looked for.
+     * The search FILTERS on `phone` and `phone_normalized` inside a query
+     * Postgres runs; it does not project them.
+     */
+    it('still finds a listener by the whole number an operator was given', async () => {
+      const label = `search-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const owner = await signInAs(customer.email, customer.password);
+      const token = await accessTokenFor(owner);
+
+      await createMemberAs(customer, customer.companyId, {
+        fullName: `${label} Searchable`,
+        phone: '+5598999771234',
+      });
+
+      const page = await listOrganizationMembers(
+        {
+          organizationId: customer.organizationId,
+          sort: 'created',
+          direction: 'desc',
+          cursor: null,
+          cursorSide: 'after',
+          search: '999771234',
+        },
+        token,
+      );
+
+      expect(page.rows.map((r) => r.fullName)).toContain(`${label} Searchable`);
+      expect(page.rows[0]?.phoneLast4).toBe('1234');
+    });
+  });
+
   describe('the birthday filter', () => {
     /**
      * Block 30b D2. The wrap is the case worth a live database: it is the one

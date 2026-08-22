@@ -1,6 +1,6 @@
 import {
   buildSearchQuery,
-  isExcludedTitle,
+  isExcludedRecording,
   type DeezerAlbumDetail,
   type DeezerResult,
   type DeezerSearchFilters,
@@ -98,7 +98,7 @@ export function createDeezerClient(options: { fetchImpl?: typeof fetch } = {}): 
           // from those twenty, so a search whose first twenty hits are all
           // karaoke versions shows nothing. Asking for more to compensate
           // would spend a bigger response on every search to serve a rare one.
-          .filter((track) => !isExcludedTitle(track.title)),
+          .filter((track) => !isExcludedRecording(track.title, track.version)),
       };
     },
 
@@ -158,6 +158,8 @@ function toTrack(raw: unknown): DeezerTrack | null {
     coverMd5: text(album.md5_image),
     durationSeconds: typeof track.duration === 'number' ? track.duration : 0,
     isrc: text(track.isrc),
+    // Block 31a, D9. The field a cover hides in when the title is clean.
+    version: text(track.version) ?? null,
     // Signed, and valid for hours. It reaches the browser, plays, and is
     // discarded — see the field's own comment in transport.ts.
     previewUrl: text(track.preview),

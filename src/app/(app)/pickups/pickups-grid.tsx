@@ -12,8 +12,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  // `WinnerActions` itself is no longer imported here: Block 31a moved the strip
+  // into `PickupRecordDialog`. What this file still needs is the PREDICATE, to
+  // decide whether the pencil that opens that window is drawn at all.
   availableWinnerActions,
-  WinnerActions,
   type WinnerAction,
   type WinnerPowers,
 } from '@/components/draws/winner-actions';
@@ -21,7 +23,9 @@ import { Button } from '@/components/ui/button';
 import { ListenerCardDialog } from '@/components/members/listener-card-dialog';
 import type { PickupRow } from '@/services/pickups';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
+import { Pencil } from 'lucide-react';
 import { maskedPhone } from '@/lib/members/mask';
+import { PickupRecordDialog } from './pickup-record-dialog';
 import { formatInstant } from '../promotions/format';
 import { describeDeadline, STATUS_CLASSES, STATUS_LABEL_KEYS } from './list-params';
 import type { PickupActionResult } from './actions';
@@ -114,6 +118,20 @@ export function PickupsGrid({
 
   const [handOverWinnerId, setHandOverWinnerId] = useState<string | null>(null);
 
+  // Block 31a. The pencil's window, on the same shape as Hand over's: only the
+  // id lives in state, so the row it shows is read fresh off `grid.rows` on
+  // every render and can never drift from the table behind it.
+  const [recordWinnerId, setRecordWinnerId] = useState<string | null>(null);
+
+  // And the same guard the two windows above already carry: an id outliving its
+  // row (a filter narrowing the page) would reopen this window unprompted the
+  // moment that filter was cleared again.
+  useEffect(() => {
+    if (recordWinnerId !== null && !grid.rows.some((row) => row.winnerId === recordWinnerId)) {
+      setRecordWinnerId(null);
+    }
+  }, [grid.rows, recordWinnerId]);
+
   // The same defect, on the window this task adds: `handOverWinnerId`
   // staying set after its row leaves `grid.rows` (a filter narrowing the
   // page) would reopen Hand over unprompted the moment that filter is
@@ -129,6 +147,23 @@ export function PickupsGrid({
   // promotion/listener/prize this window shows can never drift from what
   // the table behind it is currently showing for that winner.
   const handOverRow = grid.rows.find((row) => row.winnerId === handOverWinnerId);
+  const recordRow = grid.rows.find((row) => row.winnerId === recordWinnerId);
+
+  /**
+   * Block 31a, D7. The powers the pencil's window offers, and the ONE predicate
+   * that decides whether the pencil is even drawn.
+   *
+   * `availableWinnerActions` is asked rather than a second rule written beside
+   * it: the button must appear exactly when the window behind it would have
+   * something to offer, and the strip already knows that — including the case
+   * of a cancelled draw, where it offers nothing at all.
+   */
+  const recordPowers: WinnerPowers = {
+    ...winnerPowers,
+    deliver: false,
+    handOver: false,
+    reopenDeadline: false,
+  };
 
   function patch(winnerId: string, next: { status: PickupRow['status']; deadlineAt?: string }) {
     setGrid((current) => {
@@ -252,11 +287,31 @@ export function PickupsGrid({
                         variant="outline"
                         size="sm"
                         onClick={() => setListenerId(row.memberId)}
-                        aria-label={t('viewTheListener')}
+                        aria-label={t('openTheMember')}
                         data-testid="pickup-view-listener"
                       >
-                        {t('view')}
+                        {t('member')}
                       </Button>
+                    )}
+                    {/* Block 31a, items 3 and 4. The pencil is drawn only when
+                        the window behind it would have an action to offer —
+                        the same predicate the strip that used to sit here
+                        applied to itself. */}
+                    {availableWinnerActions({
+                      status: row.status,
+                      allowsReturnToStock: row.allowsReturnToStock,
+                      powers: recordPowers,
+                      drawStatus: row.drawStatus,
+                    }).length > 0 && (
+                      <button
+                        type="button"
+                        aria-label={t('openThisPrize')}
+                        onClick={() => setRecordWinnerId(row.winnerId)}
+                        data-testid="pickup-edit"
+                        className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <Pencil className="size-4" aria-hidden="true" />
+                      </button>
                     )}
                     {canDeliver && (
                       <Button
@@ -269,25 +324,17 @@ export function PickupsGrid({
                         {td('actionHandOver')}
                       </Button>
                     )}
-                    <WinnerActions
-                      status={row.status}
-                      allowsReturnToStock={row.allowsReturnToStock}
-                      // reopenDeadline forced false: this generic reason-only
-                      // confirm row has no field for the new deadline
-                      // reopen_pickup_deadline needs. ReopenForm below is what
-                      // actually offers it — the same courtesy draws/page.tsx
-                      // already uses to keep this exact button off a screen
-                      // with no date field.
-                      //
-                      // handOver forced false: hand-over-dialog.tsx is this
-                      // screen's own window for the same action, mounted
-                      // through the button just above rather than through
-                      // this generic strip — draws/draw-detail.tsx passes no
-                      // such flag and keeps the strip's own Hand over button.
-                      powers={{ ...winnerPowers, reopenDeadline: false, handOver: false }}
-                      drawStatus={row.drawStatus}
-                      onAct={(action, reason) => handleWinnerAction(row.winnerId, action, reason)}
-                    />
+                    {/*
+                      Block 31a, item 5. `WinnerActions` used to sit HERE, and
+                      moved into `PickupRecordDialog` behind the pencil above.
+                      What moved is where it is mounted: the same component, the
+                      same mandatory reason, the same server action, the same
+                      audit rows — now under a summary naming the promotion, the
+                      prize, the listener and the deadline it would act on.
+
+                      Draws still mounts the strip in its own row layout, where
+                      it has always been.
+                    */}
                     {canReopen && (
                       <ReopenForm
                         timeZone={timeZone}
@@ -304,6 +351,16 @@ export function PickupsGrid({
 
       {listenerId && (
         <ListenerCardDialog memberId={listenerId} onClose={() => setListenerId(null)} />
+      )}
+
+      {recordRow && (
+        <PickupRecordDialog
+          row={recordRow}
+          powers={recordPowers}
+          timeZone={timeZone}
+          onAct={(action, reason) => handleWinnerAction(recordRow.winnerId, action, reason)}
+          onClose={() => setRecordWinnerId(null)}
+        />
       )}
 
       {handOverRow && (

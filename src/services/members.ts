@@ -214,7 +214,22 @@ export async function memberReachable(
 export interface MemberListRow {
   id: string;
   fullName: string | null;
-  phone: string | null;
+  /**
+   * Block 31a, D1. FOUR DIGITS, and never the number.
+   *
+   * The list is narrowed HERE rather than masked in the grid, because a grid
+   * that renders four digits out of a whole number leaves the whole number in
+   * the payload that reached the browser — the failure `0254` exists to prevent
+   * on Pickups, Participations and Requests, and the one this screen was
+   * deliberately left out of until the owner asked for it on 2026-08-22.
+   *
+   * THE SEARCH IS UNAFFECTED. It FILTERS on `phone` and `phone_normalized`
+   * inside a query Postgres runs — see the `or` clauses further down — and
+   * narrowing what comes back narrows nothing about what can be looked for.
+   * `phone` therefore stays in MEMBER_LIST_COLUMNS: the column has to be
+   * readable for the filter to compare it.
+   */
+  phoneLast4: string | null;
   email: string | null;
   cpfLastDigits: string | null;
   birthDate: string | null;
@@ -684,7 +699,9 @@ export async function listOrganizationMembers(
     rows: rows.map((m) => ({
       id: m.id,
       fullName: m.full_name,
-      phone: m.phone,
+      // The one place the number becomes four digits (D1). A null stays null,
+      // and the grid renders a dash for it.
+      phoneLast4: m.phone ? m.phone.slice(-4) : null,
       email: m.email,
       cpfLastDigits: m.cpf_last_digits,
       birthDate: m.birth_date,

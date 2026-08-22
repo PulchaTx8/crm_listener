@@ -89,6 +89,13 @@ export type { PromotionSituation };
 export interface PromotionSummary {
   id: string;
   name: string;
+  /** Block 30c: the Programme this promotion belongs to, or null. */
+  showId?: string | null;
+  /**
+   * Block 31a: that Programme's name — null when there is no Programme AND when
+   * the caller cannot read `shows` (D6). `showId` is what separates the two.
+   */
+  showName?: string | null;
   startsAt: string;
   endsAt: string;
   cancelledAt: string | null;
@@ -158,6 +165,9 @@ type PromotionRow = {
   thumb_url: string | null;
   site_integration_code: number | null;
   deleted_at: string | null;
+  show_id: string | null;
+  /** PostgREST embeds a to-one relationship as an object, or null when RLS cut it. */
+  shows: { name: string } | null;
 };
 
 export async function listPromotionsPage(
@@ -178,7 +188,7 @@ export async function listPromotionsPage(
     let q = supabase
       .from('promotions')
       .select(
-        'id,name,starts_at,ends_at,cancelled_at,whatsapp_enabled,web_enabled,rules,hashtag,site_integration_code,thumb_url,deleted_at',
+        'id,name,starts_at,ends_at,cancelled_at,whatsapp_enabled,web_enabled,rules,hashtag,site_integration_code,thumb_url,deleted_at,show_id,shows(name)',
         options,
       )
       .eq('company_id', params.companyId);
@@ -286,6 +296,13 @@ async function withQuestionCounts(
     questionCount,
     quizQuestionCount,
     deletedAt: row.deleted_at,
+    showId: row.show_id,
+    // NULL FOR TWO DIFFERENT REASONS, and the column downstream tells them
+    // apart (Block 31a, D6): this promotion has no Programme, or `shows` was cut
+    // by the caller's own RLS. `shows_select_music_view` (0099) gates that table
+    // on `music.view`, which somebody who administers Promotions need not hold.
+    // `showId` comes back either way, which is what makes the two separable.
+    showName: row.shows?.name ?? null,
   });
 
   if (rows.length === 0) return [];

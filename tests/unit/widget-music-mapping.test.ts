@@ -12,6 +12,7 @@ const TRACK: DeezerTrack = {
   durationSeconds: 191,
   isrc: 'BRPGD9800678',
   previewUrl: 'https://cdnt-preview.dzcdn.net/api/1/1/x.mp3?hdnea=exp=1786000000~hmac=deadbeef',
+  version: null,
 };
 
 describe('toWidgetTrack', () => {

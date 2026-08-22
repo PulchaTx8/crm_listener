@@ -179,6 +179,30 @@ test('a masked list, a card that reveals one field on request, and a hand-over t
   // at all.
   expect(await page.content()).not.toContain(listenerPhone);
 
+  // --- BLOCK 31a: the pencil, and the two actions that moved into it -------
+  //
+  // The row no longer offers them. That is item 5 of the owner's list, and the
+  // point of it: on the row there was nothing on screen naming what was about to
+  // be returned to stock or written off as lost.
+  await expect(page.getByRole('button', { name: 'Return to stock' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Write off as lost' })).toHaveCount(0);
+
+  await page.getByTestId('pickup-edit').click();
+  const record = page.getByTestId('pickup-record-dialog');
+  await expect(record).toBeVisible();
+  // The summary names what the actions below it would act on.
+  await expect(record).toContainText(promotionName);
+  await expect(record).toContainText(prizeName);
+  // And it is not a way around this screen's own masking.
+  await expect(record.getByText(/^•••• \d{4}$/)).toBeVisible();
+  await expect(record.getByRole('button', { name: 'Return to stock' })).toBeVisible();
+  await expect(record.getByRole('button', { name: 'Write off as lost' })).toBeVisible();
+  await page.getByTestId('pickup-record-close').click();
+  await expect(page.getByTestId('pickup-record-dialog')).toHaveCount(0);
+
+  // The renamed button is the one that opens the listener (D8).
+  await expect(page.getByTestId('pickup-view-listener')).toHaveText('Member');
+
   // --- the listener card: masked, then revealed -----------------------------
   await page.getByTestId('pickup-view-listener').click();
   await expect(page.getByTestId('listener-card-phone')).toHaveText(

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
+import { MonthDayFields } from './month-day-fields';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { GENDER_VALUES, type GenderValue } from '@/lib/conversation/steps';
 import { hasActiveFilters, membersHref } from './list-params';
@@ -87,16 +88,15 @@ export function MembersFilters({ state }: { state: MemberListState }) {
   useEffect(() => {
     if (state.dateMode === 'registered') setToDay(toDayInput(state.registeredTo));
   }, [state.dateMode, state.registeredTo]);
-  // Same back/forward reasoning as the pair above, not the zone one: a
-  // birthday day is a slice of a string (monthDayOf, below), not an instant,
-  // so there is no clock to get wrong here -- only the URL state to resync
-  // onto after a navigation this component did not cause.
-  useEffect(() => {
-    if (state.dateMode === 'birthday') setFromDay(birthdayDayInput(state.birthdayFrom));
-  }, [state.dateMode, state.birthdayFrom]);
-  useEffect(() => {
-    if (state.dateMode === 'birthday') setToDay(birthdayDayInput(state.birthdayTo));
-  }, [state.dateMode, state.birthdayTo]);
+  // BLOCK 31a, D4. There is no birthday pair here any more. `MonthDayFields`
+  // reads `state.birthdayFrom` / `state.birthdayTo` directly and holds nothing
+  // of its own: a select changes on a click rather than on a keystroke, so it
+  // has no debounce to protect and therefore no reason to mirror a prop. A
+  // `useState` mirroring a prop that nothing writes is how the two come to
+  // disagree — which is what the two effects removed here existed to prevent.
+  //
+  // The registered pair above keeps its mirror, because those are typed date
+  // boxes and the mirror is what lets a half-typed date survive a re-render.
 
   const timers = useRef<Record<string, ReturnType<typeof setTimeout> | undefined>>({});
   useEffect(() => {
@@ -289,45 +289,59 @@ export function MembersFilters({ state }: { state: MemberListState }) {
           </Select>
         </label>
 
-        <label className="flex w-48 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">
-            {dateMode === 'birthday' ? t('birthdaysFrom') : t('registeredFrom')}
-          </span>
-          <Input
-            type="date"
-            value={fromDay}
-            onChange={(e) => {
-              const day = e.target.value;
-              setFromDay(day);
-              navigate(
-                dateMode === 'birthday'
-                  ? { birthdayFrom: monthDayOf(day) }
-                  : { registeredFrom: startOfLocalDay(day) },
-              );
-            }}
-            data-testid="member-date-from"
-          />
-        </label>
+        {/*
+          BLOCK 31a, D4. Two shapes, because the two windows are two different
+          questions: a birthday is a day and a month with no year the filter has
+          ever used, and a registration is an instant. The boxes below carried
+          both until now, with a placeholder year on screen that the birthday
+          half threw away.
+        */}
+        {dateMode === 'birthday' ? (
+          <>
+            <MonthDayFields
+              label={t('birthdaysFrom')}
+              value={state.birthdayFrom}
+              onChange={(monthDay) => navigate({ birthdayFrom: monthDay })}
+              testId="member-birthday-from"
+            />
+            <MonthDayFields
+              label={t('birthdaysTo')}
+              value={state.birthdayTo}
+              onChange={(monthDay) => navigate({ birthdayTo: monthDay })}
+              testId="member-birthday-to"
+            />
+          </>
+        ) : (
+          <>
+            <label className="flex w-48 flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">{t('registeredFrom')}</span>
+              <Input
+                type="date"
+                value={fromDay}
+                onChange={(e) => {
+                  const day = e.target.value;
+                  setFromDay(day);
+                  navigate({ registeredFrom: startOfLocalDay(day) });
+                }}
+                data-testid="member-date-from"
+              />
+            </label>
 
-        <label className="flex w-48 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">
-            {dateMode === 'birthday' ? t('birthdaysTo') : t('registeredTo')}
-          </span>
-          <Input
-            type="date"
-            value={toDay}
-            onChange={(e) => {
-              const day = e.target.value;
-              setToDay(day);
-              navigate(
-                dateMode === 'birthday'
-                  ? { birthdayTo: monthDayOf(day) }
-                  : { registeredTo: endOfLocalDay(day) },
-              );
-            }}
-            data-testid="member-date-to"
-          />
-        </label>
+            <label className="flex w-48 flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">{t('registeredTo')}</span>
+              <Input
+                type="date"
+                value={toDay}
+                onChange={(e) => {
+                  const day = e.target.value;
+                  setToDay(day);
+                  navigate({ registeredTo: endOfLocalDay(day) });
+                }}
+                data-testid="member-date-to"
+              />
+            </label>
+          </>
+        )}
 
         <label className="flex items-center gap-2 py-2 text-sm">
           <input
@@ -391,30 +405,14 @@ function toDayInput(instant: string | undefined): string {
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
 }
 
-/**
- * A `<input type="date">` value as the day of the year the URL carries.
- *
- * The year is DISCARDED here rather than on the server, for the same reason the
- * registration range is converted here: the input's value is a wall-clock day
- * with no zone, and anything that re-parses it elsewhere risks interpreting it
- * in a different one. Slicing the string touches no clock at all.
+/*
+ * `monthDayOf` and `birthdayDayInput` lived here until Block 31a, D4. They were
+ * the two halves of putting a birthday into an `<input type="date">`: one threw
+ * the year away on the way out, the other invented a fixed year 2000 on the way
+ * in, so that 29 February had somewhere to sit. `MonthDayFields` needs neither —
+ * it renders the day and the month the URL already carries, and the year is gone
+ * from the screen rather than hidden on it.
  */
-function monthDayOf(value: string): string | undefined {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.slice(5) : undefined;
-}
-
-/**
- * The reverse of monthDayOf: `MM-DD` as an `<input type="date">` value, for
- * the boxes' display in Birthday mode. The year is fixed rather than carried
- * anywhere, because Birthday mode ignores it on both ends (spec D2) — 2000
- * only so that 29 February, a value `birth_md` genuinely holds, has a year to
- * sit on when the box renders it. String concatenation, not a Date object,
- * for the same reason monthDayOf slices rather than parses: it never touches
- * a clock, so it cannot be misread in a different one.
- */
-function birthdayDayInput(monthDay: string | undefined): string {
-  return monthDay && /^\d{2}-\d{2}$/.test(monthDay) ? `2000-${monthDay}` : '';
-}
 
 /** The instant the chosen day begins, here, in the browser's own zone. */
 function startOfLocalDay(day: string): string | undefined {

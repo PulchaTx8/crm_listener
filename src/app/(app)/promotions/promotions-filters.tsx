@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
+import { RefreshButton } from '@/components/ui/refresh-button';
 import type { PromotionSituation } from '@/lib/promotion-situation';
 import { SITUATION_LABELS, SITUATION_ORDER } from './format';
 import { hasActivePromotionFilters, promotionsHref } from './list-params';
@@ -146,6 +147,7 @@ export function PromotionsFilters({
         >
           {t('clearFilters')}</Link>
       )}
+      <RefreshButton />
     </div>
   );
 }

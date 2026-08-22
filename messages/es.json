@@ -462,6 +462,11 @@
     "auditDescription": "Lo que se ha hecho en esta Organización, por quién y cuándo. Filtrado por lo que usted puede leer."
   },
   "pickups": {
+    "close": "Cerrar",
+    "member": "Miembro",
+    "openTheMember": "Abrir el miembro",
+    "openThisPrize": "Abrir este premio",
+    "thePrize": "Premio",
     "pickups": "Retiros",
     "showing": "Mostrando",
     "ofTheStationsYouCanReach": "de las Emisoras que usted alcanza. Busque por nombre para llegar a una que no esté listada.",
@@ -1106,6 +1111,21 @@
     "phone": "Teléfono",
     "eMail": "Correo electrónico",
     "age": "Edad",
+    "birthday": "Cumpleaños",
+    "day": "Día",
+    "month": "Mes",
+    "monthJanuary": "Enero",
+    "monthFebruary": "Febrero",
+    "monthMarch": "Marzo",
+    "monthApril": "Abril",
+    "monthMay": "Mayo",
+    "monthJune": "Junio",
+    "monthJuly": "Julio",
+    "monthAugust": "Agosto",
+    "monthSeptember": "Septiembre",
+    "monthOctober": "Octubre",
+    "monthNovember": "Noviembre",
+    "monthDecember": "Diciembre",
     "city": "Ciudad",
     "blockState": "Estado del bloqueo",
     "actions": "Acciones",
@@ -1235,6 +1255,8 @@
     "couldNotRevealThisField": "No fue posible revelar este campo."
   },
   "participations": {
+    "member": "Miembro",
+    "openTheMember": "Abrir el miembro",
     "draw": "Sorteo",
     "draw2": "Sorteo —",
     "close": "Cerrar",
@@ -1621,6 +1643,8 @@
     "checkTheForm": "Revisa el formulario."
   },
   "promotions": {
+    "notVisible": "No visible",
+    "theProgrammeNameNeedsMusicView": "Esta promoción pertenece a un Programa cuyo nombre requiere el permiso music.view.",
     "promotions": "Promociones",
     "showing": "Mostrando",
     "ofTheStationsYouCanReach": "de las Emisoras que usted alcanza. Busque por nombre para llegar a una que no esté listada.",
@@ -1820,6 +1844,8 @@
     "rulesRequiredWhenADoorIsOpen": "El reglamento es obligatorio cuando la participación por WhatsApp o por el sitio está activada."
   },
   "music": {
+    "member": "Miembro",
+    "openTheMember": "Abrir el miembro",
     "closeRecord": "Cerrar ficha",
     "recordSections": "Secciones de la ficha",
     "loadingTheRecord": "Cargando la ficha…",

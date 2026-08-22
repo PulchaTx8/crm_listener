@@ -240,7 +240,12 @@ const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/prize-categories.test.ts', minTests: 7 },
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },
-  { path: 'tests/isolation/members.test.ts', minTests: 23 },
+  // Block 31a raised this by two: the Members list now sends four digits and
+  // never the telephone number (D1), and the search that FILTERS on the whole
+  // number still finds a listener by it. Both are asserted on the returned ROW
+  // rather than on a screen, because a row that still carried the number would
+  // render identically once the column sliced it.
+  { path: 'tests/isolation/members.test.ts', minTests: 25 },
   // Block 7a, Task 5: the music catalogue's tenant boundary -- a cross-
   // Station song refused by assert_song_references_live with P0002 (not a
   // permission code, even for the owner, who passes every gate), the

@@ -462,6 +462,11 @@
     "auditDescription": "O que foi feito nesta Organização, por quem e quando. Filtrado pelo que você pode ler."
   },
   "pickups": {
+    "close": "Fechar",
+    "member": "Membro",
+    "openTheMember": "Abrir o membro",
+    "openThisPrize": "Abrir este prêmio",
+    "thePrize": "Prêmio",
     "pickups": "Retiradas",
     "showing": "Mostrando",
     "ofTheStationsYouCanReach": "das Emissoras que você alcança. Busque pelo nome para chegar a uma que não está listada.",
@@ -1106,6 +1111,21 @@
     "phone": "Telefone",
     "eMail": "E-mail",
     "age": "Idade",
+    "birthday": "Aniversário",
+    "day": "Dia",
+    "month": "Mês",
+    "monthJanuary": "Janeiro",
+    "monthFebruary": "Fevereiro",
+    "monthMarch": "Março",
+    "monthApril": "Abril",
+    "monthMay": "Maio",
+    "monthJune": "Junho",
+    "monthJuly": "Julho",
+    "monthAugust": "Agosto",
+    "monthSeptember": "Setembro",
+    "monthOctober": "Outubro",
+    "monthNovember": "Novembro",
+    "monthDecember": "Dezembro",
     "city": "Cidade",
     "blockState": "Estado do bloqueio",
     "actions": "Ações",
@@ -1235,6 +1255,8 @@
     "couldNotRevealThisField": "Não foi possível revelar este campo."
   },
   "participations": {
+    "member": "Membro",
+    "openTheMember": "Abrir o membro",
     "draw": "Sorteio",
     "draw2": "Sorteio —",
     "close": "Fechar",
@@ -1621,6 +1643,8 @@
     "checkTheForm": "Revise o formulário."
   },
   "promotions": {
+    "notVisible": "Não visível",
+    "theProgrammeNameNeedsMusicView": "Esta promoção pertence a um Programa cujo nome exige a permissão music.view.",
     "promotions": "Promoções",
     "showing": "Mostrando",
     "ofTheStationsYouCanReach": "das Emissoras que você alcança. Busque pelo nome para chegar a uma que não está listada.",
@@ -1820,6 +1844,8 @@
     "rulesRequiredWhenADoorIsOpen": "O regulamento passa a ser obrigatório quando a participação por WhatsApp ou pelo site está ligada."
   },
   "music": {
+    "member": "Membro",
+    "openTheMember": "Abrir o membro",
     "closeRecord": "Fechar ficha",
     "recordSections": "Seções da ficha",
     "loadingTheRecord": "Carregando a ficha…",

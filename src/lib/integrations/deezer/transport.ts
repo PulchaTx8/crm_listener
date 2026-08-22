@@ -23,6 +23,14 @@ export interface DeezerTrack {
   /** Present in the SEARCH result itself, which is why registering costs no extra call for it. */
   isrc: string | null;
   /**
+   * Deezer's own version marker — `(Cover Version)`, `(Live)`, `(Radio Edit)`.
+   *
+   * Block 31a read it because Block 24's exclusion could not see it: the field
+   * exists beside `title` and `toTrack` had never taken it, so every cover
+   * marked only here arrived looking like the original.
+   */
+  version: string | null;
+  /**
    * The 30-second preview.
    *
    * SIGNED AND SHORT-LIVED. Deezer returns it carrying `hdnea=exp=<unix>~hmac=…`
@@ -93,7 +101,21 @@ export interface DeezerTransport {
  * not matched — accented, it is a different string, and widening this to strip
  * accents would start matching titles nobody listed.
  */
-const EXCLUDED_TITLE_TERMS = ['karaoke', 'cover)', '(cover', 'cover]', '[cover'] as const;
+/**
+ * `cover version` joined the list in Block 31a, and it is the ONE unbracketed
+ * term. It is safe where the bare word is not: two words cannot sit inside
+ * "Undercover", "Discovery" or "Coverage", and the real recording called "Cover
+ * Me" does not contain the phrase either. It earns its place because Deezer
+ * writes exactly that in the `version` field, where nothing brackets it.
+ */
+const EXCLUDED_TITLE_TERMS = [
+  'karaoke',
+  'cover)',
+  '(cover',
+  'cover]',
+  '[cover',
+  'cover version',
+] as const;
 
 /**
  * Whether a recording is a karaoke backing track or a cover, judged by its
@@ -108,6 +130,26 @@ const EXCLUDED_TITLE_TERMS = ['karaoke', 'cover)', '(cover', 'cover]', '[cover']
 export function isExcludedTitle(title: string): boolean {
   const lowered = title.toLowerCase();
   return EXCLUDED_TITLE_TERMS.some((term) => lowered.includes(term));
+}
+
+/**
+ * Block 31a, D9. The same rule, applied to the PAIR Deezer actually publishes.
+ *
+ * `isExcludedTitle` above judges a title, and until this block that was all the
+ * search read: `toTrack` never took Deezer's `version` field, so a recording
+ * whose title is clean and whose version says "(Cover Version)" arrived looking
+ * like the original. That is what the owner reported on 2026-08-22, and it was
+ * never a gap in the term list — it was a field nobody read.
+ *
+ * Joined with a space rather than concatenated, so a title ending in "co" and a
+ * version starting with "ver" cannot spell a term between them.
+ *
+ * APPLIED TO SEARCH RESULTS ONLY, like its half above: `track(id)` — the lookup
+ * the widget's song request makes for a recording already in a Station's
+ * catalogue — must keep answering, or an existing row becomes unresolvable.
+ */
+export function isExcludedRecording(title: string, version: string | null): boolean {
+  return isExcludedTitle(version ? `${title} ${version}` : title);
 }
 
 /**

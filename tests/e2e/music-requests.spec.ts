@@ -459,6 +459,11 @@ test('the studio marks a request read, then played, and the phone stays masked t
   const requestRow = ownerPage.getByTestId('request-row');
   await expect(requestRow).toHaveCount(1);
 
+  // BLOCK 31a, D8. The button that opens the listener's card says Member -- the
+  // owner's ruling, deliberately against the Ouvinte/Oyente the column beside it
+  // uses in the other two languages.
+  await expect(ownerPage.getByTestId('request-view-listener')).toHaveText('Member');
+
   // ===========================================================================
   // 3. The read filter, proven to actually filter: UNREAD shows the one row a
   //    freshly recorded request always starts as.

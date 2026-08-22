@@ -100,6 +100,10 @@ describe('the Deezer client', () => {
       durationSeconds: 191,
       isrc: 'BRPGD9800678',
       previewUrl: 'https://cdnt-preview.dzcdn.net/api/1/1/x.mp3?hdnea=exp=1',
+      // Block 31a, D9. Read now, and null for a body that carries no version.
+      // The field is where a cover hides when the title is clean, which is why
+      // the search judges the pair rather than the title alone.
+      version: null,
     });
   });
 
@@ -207,6 +211,11 @@ describe('track', () => {
         durationSeconds: 231,
         isrc: 'BRXXX0000001',
         previewUrl: 'https://cdnt-preview.dzcdn.net/x.mp3?hdnea=exp=1~hmac=y',
+        // Mapped by the same `toTrack` the search uses -- which is what this
+        // case exists to hold down -- so the field appears here too. The lookup
+        // still ANSWERS for a cover: filtering by id would make a recording
+        // already registered in a Station's catalogue unresolvable (Block 24).
+        version: null,
       },
     });
   });

@@ -205,6 +205,11 @@ test('an operator opens one entry and reads what the listener answered', async (
   await page.goto(`/participations?companyId=${stationId}`);
   await expect(page.getByTestId('participation-row')).toHaveCount(1);
 
+  // BLOCK 31a, D8. The brief calls this the Listener button; it says Member now.
+  // The button BESIDE it, which opens the entry rather than the person, keeps
+  // its own label -- only the one naming the person was renamed.
+  await expect(page.getByTestId('participation-view-listener')).toHaveText('Member');
+
   await page.getByTestId('participation-view').click();
 
   // --- who ------------------------------------------------------------------
