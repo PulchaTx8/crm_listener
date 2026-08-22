@@ -385,15 +385,31 @@ describe('roles', () => {
     expect(refused.error!.message).toMatch(/roles\.manage/);
   });
 
-  it('grants the owner everything without any membership row', async () => {
+  it('grants the owner everything at their Station, now through a membership that says they own it', async () => {
+    // This test was called "grants the owner everything WITHOUT any membership
+    // row", and asserted zero. Both were true of the model 0277 replaced: an
+    // Organization's owner held every permission at every Station of the group
+    // through an unconditional branch in has_permission_for, needing no row
+    // anywhere -- and so unable to be revoked anywhere either.
+    //
+    // Design D19 narrowed that branch to reads, and D17's Station owner (0278)
+    // carries the writing instead: add_company names the Organization's owners
+    // as owners of each Station it creates, and 0280 did the same for every
+    // Station that already existed. The permission is unchanged; what changed is
+    // that it is now a row somebody can see and take away.
     const customer = await provisionCustomer(`roles-owner-${Date.now()}`);
     const owner = await signInAs(customer.email, customer.password);
 
     const { data: rows } = await admin
       .from('company_memberships')
-      .select('id')
+      .select('id, company_id, is_owner, role_id')
       .eq('user_id', customer.userId);
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.company_id).toBe(customer.companyId);
+    expect(rows?.[0]?.is_owner).toBe(true);
+    // And no role: ownership is what says what they may do, which is why 0278
+    // had to make role_id optional.
+    expect(rows?.[0]?.role_id).toBeNull();
 
     const { data } = await owner.rpc('has_permission', {
       p_permission: 'users.invite',
@@ -436,17 +452,21 @@ describe('roles', () => {
     expect(orgUserIds).toContain(plain.userId);
     expect(orgUserIds).toHaveLength(3);
 
-    // And every live company_membership: the owner holds none by design
-    // (Block 1c §4.6), so this Organization has exactly two — the manager's
-    // own and the plain colleague's.
+    // And every live company_membership. THREE since 0278, not the two Block 1c
+    // §4.6 described: the owner held none back then, because the group's blanket
+    // made one unnecessary. D17 gives a Station owners of its own and
+    // add_company names the Organization's owner as one, so the roster the Team
+    // screen shows now includes them — which is the point, since a power that
+    // appears on no screen is a power nobody can revoke.
     const { data: companyRows, error: companyError } = await managerClient
       .from('company_memberships')
       .select('user_id');
     expect(companyError).toBeNull();
     const companyUserIds = (companyRows ?? []).map((r) => r.user_id);
+    expect(companyUserIds).toContain(customer.userId);
     expect(companyUserIds).toContain(manager.userId);
     expect(companyUserIds).toContain(plain.userId);
-    expect(companyUserIds).toHaveLength(2);
+    expect(companyUserIds).toHaveLength(3);
 
     // The plain colleague holds neither users.manage nor roles.manage, and
     // must still see only their own row in both tables — the widening must
