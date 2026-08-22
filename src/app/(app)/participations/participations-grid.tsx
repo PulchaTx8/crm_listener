@@ -232,10 +232,12 @@ export function ParticipationsGrid({
                       variant="outline"
                       size="sm"
                       onClick={() => setListenerId(entry.memberId)}
-                      aria-label={t('viewTheListener')}
+                      aria-label={t('openTheMember')}
                       data-testid="participation-view-listener"
                     >
-                      {t('listener')}
+                      {/* Block 31a, D8. Renamed; the button beside it, which
+                          opens the ENTRY rather than the person, is untouched. */}
+                      {t('member')}
                     </Button>
                   )}
                 </TableCell>

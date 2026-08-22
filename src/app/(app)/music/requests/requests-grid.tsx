@@ -282,10 +282,12 @@ export function RequestsGrid({
                         variant="outline"
                         size="sm"
                         onClick={() => setListenerId(request.memberId)}
-                        aria-label={t('viewTheListener')}
+                        aria-label={t('openTheMember')}
                         data-testid="request-view-listener"
                       >
-                        {t('view')}
+                        {/* Block 31a, D8. The owner's word, deliberately not the
+                            Ouvinte/Oyente the column beside it uses. */}
+                        {t('member')}
                       </Button>
                     )}
                     <Button

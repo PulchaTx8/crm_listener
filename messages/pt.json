@@ -1255,6 +1255,8 @@
     "couldNotRevealThisField": "Não foi possível revelar este campo."
   },
   "participations": {
+    "member": "Membro",
+    "openTheMember": "Abrir o membro",
     "draw": "Sorteio",
     "draw2": "Sorteio —",
     "close": "Fechar",
@@ -1842,6 +1844,8 @@
     "rulesRequiredWhenADoorIsOpen": "O regulamento passa a ser obrigatório quando a participação por WhatsApp ou pelo site está ligada."
   },
   "music": {
+    "member": "Membro",
+    "openTheMember": "Abrir o membro",
     "closeRecord": "Fechar ficha",
     "recordSections": "Seções da ficha",
     "loadingTheRecord": "Carregando a ficha…",

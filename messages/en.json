@@ -1255,6 +1255,8 @@
     "couldNotRevealThisField": "This field could not be revealed."
   },
   "participations": {
+    "member": "Member",
+    "openTheMember": "Open the member",
     "draw": "Draw",
     "draw2": "Draw —",
     "close": "Close",
@@ -1842,6 +1844,8 @@
     "rulesRequiredWhenADoorIsOpen": "The rules are required once entry by WhatsApp or on the website is on."
   },
   "music": {
+    "member": "Member",
+    "openTheMember": "Open the member",
     "closeRecord": "Close record",
     "recordSections": "Record sections",
     "loadingTheRecord": "Loading the record…",
