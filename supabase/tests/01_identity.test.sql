@@ -1,5 +1,5 @@
 begin;
-select plan(29);
+select plan(30);
 
 -- tables exist
 select has_table('public', 'profiles', 'profiles exists');
@@ -69,9 +69,34 @@ select ok(
   'anon may not call suspend_company'
 );
 
--- Block 1c: a membership without a role is not representable.
-select col_not_null('public', 'company_memberships', 'role_id',
-  'a Company membership must carry a role');
+-- Block 1c made a membership without a role unrepresentable, and 0278 kept the
+-- rule while widening what satisfies it: a Station's OWNER needs no role, since
+-- ownership itself is what says they may act (design D17). What stays
+-- unrepresentable is the row that means nothing -- somebody working at a Station
+-- who neither owns it nor holds a role there.
+select has_check('public', 'company_memberships',
+  'a Company membership must say something: owner, or a role');
+
+-- SELF-CONTAINED, and it had to become so twice. Copying an existing membership
+-- row collides with company_memberships_unique and reports 23505, which looks
+-- like the same red and proves nothing about the CHECK; and an `insert ...
+-- select` over a table this file has not populated inserts no row and raises
+-- nothing at all, which reads as "the constraint does not work".
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-0000000001c7', 'Org roleless probe');
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-0000000001c8', '00000000-0000-0000-0000-0000000001c7',
+   'Station roleless probe', 'America/Sao_Paulo');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000001c9', 'roleless-probe@example.test');
+
+select throws_ok($$
+  insert into public.company_memberships (user_id, company_id, organization_id)
+  values ('00000000-0000-0000-0000-0000000001c9',
+          '00000000-0000-0000-0000-0000000001c8',
+          '00000000-0000-0000-0000-0000000001c7')
+$$, '23514', null,
+   'and a membership that is neither an owner nor a role is still refused');
 select col_not_null('public', 'company_memberships', 'organization_id',
   'a Company membership carries its Organization, for the composite keys');
 
