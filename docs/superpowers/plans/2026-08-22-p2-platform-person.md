@@ -13,8 +13,9 @@ columns here and converting them in P3 would be building and demolishing.
 `members` gains `person_id` and keeps everything else exactly as it is: the name
 that Station knows, the birthday it confirmed, the consent it collected. All four
 doors that register a listener already funnel through one body,
-`0061_member_resolution_cores.sql`, so attaching a person lands in one place and
-cannot drift.
+`apply_member_creation` — named for the file that introduced it, `0061`, and
+actually defined in `0213_country.sql:210` since that migration dropped and
+recreated it — so attaching a person lands in one place and cannot drift.
 
 **Tech Stack:** PostgreSQL / PL/pgSQL, Supabase migrations, pgTAP.
 

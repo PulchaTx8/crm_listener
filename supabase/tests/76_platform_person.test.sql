@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(15);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures. This file owns them: it needs TWO Organizations with a Station each,
@@ -78,6 +78,74 @@ select lives_ok($$
     ('00000000-0000-0000-0000-0000000076a1', 'CPF',
      '1111111111111111111111111111111111111111111111111111111111111111')
 $$, 'and one person may hold several live claims, including a second of one kind');
+
+
+-- ---------------------------------------------------------------------------
+-- RESOLUTION. The four doors that register a listener -- console, WhatsApp, the
+-- Block 15 API and the widget -- all pass through apply_member_creation, which
+-- is why attaching a person lands in one place and cannot drift.
+--
+-- TWENTY ARGUMENTS. 0213_country dropped the nineteen-parameter version 0061
+-- wrote and created one taking p_country as well; pg_proc is the authority on
+-- that, not the migration that first introduced the function.
+-- ---------------------------------------------------------------------------
+
+select isnt(
+  public.resolve_or_attach_person('5511900000010', null, null, null),
+  null,
+  'a telephone nobody claims mints a person');
+
+select is(
+  (select count(*)::int from public.person_identifiers
+    where kind = 'PHONE' and value = '5511900000010' and valid_to is null),
+  1,
+  'and records the claim, once');
+
+select is(
+  public.resolve_or_attach_person('5511900000010', null, null, null),
+  public.resolve_or_attach_person('5511900000010', null, null, null),
+  'the same telephone twice is the same person');
+
+-- NORMALISED through the same two functions members.phone_normalized delegates
+-- to: a number typed with punctuation must not mint a second person for one
+-- human. 0031's comment on those functions is a standing warning about exactly
+-- this -- these values ARE identity, and one that drifts stops deduplicating
+-- while the duplicates look legitimate.
+select is(
+  public.resolve_or_attach_person('+55 11 90000-0010', null, null, null),
+  public.resolve_or_attach_person('5511900000010', null, null, null),
+  'and a number typed differently resolves to the same person');
+
+-- THE BRIDGE, and the case that would be a contradiction if people held
+-- attributes. One caller names person A by telephone and person B by e-mail.
+-- Exactly two columns reference people, so merging them is two updates and
+-- nobody is retired -- which is why D20's fallback is never reached.
+select public.resolve_or_attach_person('5511900000020', null, null, null);
+select public.resolve_or_attach_person(null, 'bridge@example.com', null, null);
+select public.resolve_or_attach_person('5511900000020', 'bridge@example.com', null, null);
+select is(
+  (select count(distinct person_id)::int from public.person_identifiers
+    where value in ('5511900000020', 'bridge@example.com') and valid_to is null),
+  1,
+  'a caller naming two people merges them rather than refusing or retiring one');
+
+-- CALLED ONCE, into a table. apply_member_creation WRITES, and a writing
+-- function placed in a where clause is evaluated per row of the table being
+-- scanned -- it registered a listener for every member in the database and
+-- compared none of them successfully. The failure read "have: NULL", which says
+-- nothing about the cause.
+create table pg_temp.p2_created as
+  select public.apply_member_creation(
+    '00000000-0000-0000-0000-0000000076c1', 'Pessoa P2', '5511900000030',
+    null, null, null, null, null, null, null, null, null, null, null,
+    null, null, null, null, null, null) as id;
+
+select is(
+  (select m.person_id is not null
+     from public.members m
+     join pg_temp.p2_created c on c.id = m.id),
+  true,
+  'and a listener registered through the shared core comes out with a person attached');
 
 select * from finish();
 rollback;
