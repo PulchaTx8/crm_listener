@@ -298,7 +298,7 @@ git commit -m "feat(p2): the platform person, holding identity and no attribute 
 **Files:**
 - Create: `supabase/migrations/0273_person_resolution.sql`
 - Modify: `supabase/tests/76_platform_person.test.sql`
-- Read (do not modify): `supabase/migrations/0061_member_resolution_cores.sql:184` — `apply_member_creation`, whose live definition this copies forward
+- Read (do not modify): `supabase/migrations/0213_country.sql:210` — `apply_member_creation`, **whose live definition this is, and it is not `0061`**
 
 **Interfaces:**
 - Consumes: `public.people`, `public.person_identifiers` from Task 1
@@ -360,8 +360,8 @@ select is(
      from public.members m
     where m.id = public.apply_member_creation(
       '00000000-0000-0000-0000-0000000076c1', 'Pessoa P2', '5511900000030',
-      null, null, null, null, null, null, null, null, null, null, null, null,
-      null, null, null, null)),
+      null, null, null, null, null, null, null, null, null, null, null,
+      null, null, null, null, null, null)),  -- twenty: 0213 added p_country
   true,
   'and a listener registered through the shared core comes out with a person attached');
 ```
@@ -505,8 +505,8 @@ Second, `apply_member_creation` copied forward. Extract the live definition and
 add one call:
 
 ```bash
-sed -n '/^create or replace function public.apply_member_creation/,/^\$\$;/p' \
-  supabase/migrations/0061_member_resolution_cores.sql \
+sed -n '/^create function public.apply_member_creation/,/^\$\$;/p' \
+  supabase/migrations/0213_country.sql \
   >> supabase/migrations/0273_person_resolution.sql
 ```
 
@@ -526,11 +526,15 @@ Verify the copy reverted nothing:
 
 ```bash
 diff \
-  <(sed -n '/^create or replace function public.apply_member_creation/,/^\$\$;/p' supabase/migrations/0061_member_resolution_cores.sql) \
+  <(sed -n '/^create function public.apply_member_creation/,/^\$\$;/p' supabase/migrations/0213_country.sql) \
   <(sed -n '/^create or replace function public.apply_member_creation/,/^\$\$;/p' supabase/migrations/0273_person_resolution.sql)
 ```
 
-Expected: one hunk — the comment, the column and the value. Nothing removed.
+Change the copied `create function` to `create or replace function`: `0213`
+needed a drop because it changed the signature; this does not change it.
+
+Expected: two hunks — that keyword, and the comment plus the column plus the
+value. Nothing removed.
 
 - [ ] **Step 4: Run it and watch it pass**
 
@@ -587,12 +591,12 @@ update public.members set person_id = null
  where id in (
    public.apply_member_creation(
      '00000000-0000-0000-0000-0000000076c1', 'Mesma Pessoa', '5511900000040',
-     null, null, null, null, null, null, null, null, null, null, null, null,
-     null, null, null, null),
+     null, null, null, null, null, null, null, null, null, null, null,
+     null, null, null, null, null, null),
    public.apply_member_creation(
      '00000000-0000-0000-0000-0000000076c2', 'Mesma Pessoa', '5511900000040',
-     null, null, null, null, null, null, null, null, null, null, null, null,
-     null, null, null, null));
+     null, null, null, null, null, null, null, null, null, null, null,
+     null, null, null, null, null, null));
 
 -- Re-run the backfill's body over what was just un-attached. The migration ran
 -- before this file did, so re-running its statement is how a test reaches it.
