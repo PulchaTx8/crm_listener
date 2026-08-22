@@ -1,5 +1,5 @@
 begin;
-select plan(147);
+select plan(154);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -1597,6 +1597,89 @@ select is(
     where provider = 'WHATSAPP'
       and dedupe_key = pg_temp.wamid_hash('wamid.A2') || ':confirmation'),
   1, 'but the listener is answered once: the reply is keyed on the message, so deciding it twice enqueues one row');
+
+-- ---------------------------------------------------------------------------
+-- P1. A DEAD TENANT REGISTERS NOBODY.
+--
+-- Until 0271 the promotion hashtag reached the listener resolution and the
+-- pre-check with no liveness test of any kind: v_install's join carries
+-- c.deleted_at, c.status and o.suspended_at, and MUSIC and MENU cannot match
+-- without it, but the promotion select reads public.promotions straight off
+-- company_id. So a Station suspended for non-payment went on registering
+-- listeners, recording participations and enqueueing replies that Meta bills it
+-- for -- 0267's own comment names this hole and says it is not closed there.
+--
+-- LAST IN THE FILE ON PURPOSE: this section suspends the Station every
+-- assertion above depends on. It puts both columns back before its own last
+-- assertion, which is also the control -- without it, a fixture broken for some
+-- unrelated reason would make the six above pass while proving nothing.
+--
+-- The phones are new to this file, so a member found under either one can only
+-- have been created by the call under test.
+-- ---------------------------------------------------------------------------
+
+update public.companies
+   set status = 'suspended'
+ where id = '00000000-0000-0000-0000-0000000005c2';
+
+select is(
+  pg_temp.ingest('wamid.P1SUSPENDED', '5511977770001', 'quero #EUQUERO',
+                 '2026-06-10T12:00:00Z') ->> 'outcome',
+  'tenant_inactive',
+  'a promotion hashtag at a SUSPENDED Station finishes tenant_inactive');
+
+select is(
+  (select count(*)::int from public.members
+    where phone_normalized like '%977770001'),
+  0,
+  'and registers no listener');
+
+select is(
+  (select count(*)::int from public.participations p
+    join public.members m on m.id = p.member_id
+   where m.phone_normalized like '%977770001'),
+  0,
+  'and records no participation');
+
+select is(
+  (select count(*)::int from pg_temp.confirmation('wamid.P1SUSPENDED')),
+  0,
+  'and enqueues nothing for Meta to bill the Station for');
+
+update public.companies
+   set status = 'active'
+ where id = '00000000-0000-0000-0000-0000000005c2';
+
+-- organizations_block_shape (0154) is `(suspended_at is null) = (suspended_by
+-- is null)`: a block names who ordered it or it is not a block.
+update public.organizations
+   set suspended_at = now(),
+       suspended_by = '00000000-0000-0000-0000-0000000005b1'
+ where id = '00000000-0000-0000-0000-0000000005f1';
+
+select is(
+  pg_temp.ingest('wamid.P1BLOCKEDORG', '5511977770002', 'quero #EUQUERO',
+                 '2026-06-10T12:00:00Z') ->> 'outcome',
+  'tenant_inactive',
+  'a promotion hashtag at a BLOCKED Organization finishes tenant_inactive too');
+
+select is(
+  (select count(*)::int from public.members
+    where phone_normalized like '%977770002'),
+  0,
+  'and registers no listener either');
+
+update public.organizations
+   set suspended_at = null,
+       suspended_by = null
+ where id = '00000000-0000-0000-0000-0000000005f1';
+
+select isnt(
+  pg_temp.ingest('wamid.P1LIVEAGAIN', '5511977770003', 'quero #EUQUERO',
+                 '2026-06-10T12:00:00Z') ->> 'outcome',
+  'tenant_inactive',
+  'and the very same message at the restored Station is not refused');
+
 
 select * from finish();
 rollback;
