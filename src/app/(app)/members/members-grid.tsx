@@ -33,7 +33,9 @@ import { RegisterMemberForm } from './register-member-form';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 
 /** How many columns the empty-state row has to span, actions included. */
-const COLUMN_COUNT = 9;
+// Raised by one for Block 31a's Birthday column. A number that has to be changed
+// by hand with every column, or the "no listeners" row stops spanning the table.
+const COLUMN_COUNT = 10;
 
 export interface MemberPowers {
   create: boolean;
@@ -46,6 +48,25 @@ export interface MemberPowers {
 const INITIAL_ARCHIVE: ArchiveMemberState = { status: 'idle' };
 
 /** What the grid shows for a row whose name is absent or erased. */
+/**
+ * Block 31a. The day and month of a birth date, as `DD/MM`.
+ *
+ * SLICED FROM THE STRING rather than parsed into a Date: `birth_date` is a
+ * Postgres `date` and arrives as `YYYY-MM-DD`, and `new Date('1990-12-31')` is
+ * read as UTC midnight and then rendered in the browser's own zone — which
+ * anywhere west of Greenwich prints the 30th. A birthday has no timezone.
+ *
+ * Derived from the date the row already carries for the Age column beside it,
+ * rather than from `members.birth_md`: that column is what the birthday WINDOW
+ * compares against in SQL, and projecting it here would put the same fact on the
+ * wire twice.
+ */
+function birthdayOf(birthDate: string | null): string {
+  if (!birthDate) return '—';
+  const [, month, day] = birthDate.split('-');
+  return month && day ? `${day}/${month}` : '—';
+}
+
 function displayName(member: MemberListRow, t: (key: string) => string): string {
   if (member.anonymizedAt) return t('personalDataErased');
   return member.fullName ?? t('unnamedListener');
@@ -186,6 +207,7 @@ export function MembersGrid({
               <TableHead>{t('eMail')}</TableHead>
               <TableHead>CPF</TableHead>
               <TableHead>{t('age')}</TableHead>
+              <TableHead>{t('birthday')}</TableHead>
               <TableHead>{t('city')}</TableHead>
               <TableHead aria-sort={ariaSort(registeredSorted)}>
                 <SortLink
@@ -233,6 +255,7 @@ export function MembersGrid({
                     <TableCell>{member.email ?? '—'}</TableCell>
                     <TableCell>{member.cpfLastDigits ? `···${member.cpfLastDigits}` : '—'}</TableCell>
                     <TableCell>{age === null ? '—' : age}</TableCell>
+                    <TableCell data-testid="member-birthday">{birthdayOf(member.birthDate)}</TableCell>
                     <TableCell>{member.city ?? '—'}</TableCell>
                     <TableCell>{formatDate(member.createdAt)}</TableCell>
                     <TableCell>

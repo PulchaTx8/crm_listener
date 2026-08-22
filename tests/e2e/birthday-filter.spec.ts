@@ -148,6 +148,12 @@ test('a birthday window crossing new year finds the two listeners either side of
   await expect(rowFor(JAN_NAME)).toBeVisible();
   await expect(rowFor(JUL_NAME)).toBeVisible();
 
+  // BLOCK 31a. The birthday itself, day and month, so an operator reading a
+  // filtered list can see WHY each row matched -- and the telephone column
+  // carrying four digits at most (D1), which is the same screen's other half.
+  await expect(rowFor(NYE_NAME)).toContainText('31/12');
+  await expect(rowFor(JAN_NAME)).toContainText('05/01');
+
   await page.getByTestId('member-date-mode').selectOption('birthday');
   // This wait is synchronisation, not a workaround for a defect that is still
   // live: selectOption() dispatches the change event and returns before React

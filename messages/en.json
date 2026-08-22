@@ -1106,6 +1106,7 @@
     "phone": "Phone",
     "eMail": "E-mail",
     "age": "Age",
+    "birthday": "Birthday",
     "city": "City",
     "blockState": "Block state",
     "actions": "Actions",

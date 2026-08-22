@@ -111,11 +111,16 @@ does. The boundary is the same (`members.view`); the record is not.
 
 ### D3 — The birthday column reads a column that already exists
 
-`members.birth_md` was added by `0257` (Block 30b) as a generated column — a
-`smallint` holding month and day as `MMDD` (`1220` for 20 December), so the
-birthday window can compare against it without extracting anything per row. The column shows it as
-`20/12`, in the reader's own order via the existing date formatting, and shows a
-dash when the listener has no birth date.
+The column is derived from `birth_date`, which the row ALREADY CARRIES — the Age
+column beside it is computed from exactly that field. Adding `birth_md` to the
+projection would put the same fact on the wire twice.
+
+`members.birth_md` (`0257`, a generated `smallint` holding `MMDD`) stays what it
+has been since Block 30b: the column the birthday WINDOW compares against in
+SQL, where extracting month and day per row would cost an index. It is the
+filter's column, not the display's, and this block does not touch it.
+
+The cell reads `20/12` and shows a dash when the listener has no birth date.
 
 Nothing is computed in the browser and nothing is added to the schema.
 
@@ -297,3 +302,7 @@ application bundle, so it arrives with the deploy.
   learned to say "not visible". The decision is still owed.
 - **Two words for one person** on Pickups, Requests and Participations (D8),
   by the owner's ruling.
+- **The grid still receives each listener's whole date of birth**, because the
+  Age column has always been computed in the browser from it. Nobody asked for
+  that to change and this block did not change it — but it is the same shape of
+  fact D1 just narrowed one column over.
