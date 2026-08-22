@@ -82,6 +82,8 @@ Three sentences carry the whole thing:
   address. Each Station keeps the profile it collected. The platform row holds
   identifiers and nothing else, which is what makes this true by construction
   rather than by policy.
+- **No Organization-wide listener block.** It exists today and does not survive
+  D17; a block is relationship data and only a Station can hold one.
 - **No dependency on Meta approval.** Business-Scoped User IDs were considered
   and rejected in D12. Nothing here waits on an eligibility decision.
 
@@ -338,9 +340,9 @@ Half the machinery exists — a `report_runs` row is a snapshot by nature — an
 is missing is the dashboard reading the frozen record for closed periods and
 computing only the open one.
 
-*Derived, not ruled:* while the group owns the Station it reaches records through
-it; once it does not, it keeps only the numbers. Access comes from present
-ownership, the record comes from the past. Confirm before building.
+**Ruled by D17:** the group never reaches records by owning the group. It reaches
+them only through somebody who is staff of a Station, and of a Station that has
+left it keeps numbers alone.
 
 ### D12 — No BSUID. Identity is the pair (number, identity key)
 
@@ -483,22 +485,102 @@ obligation was born of promotions, so the consequence lands there. Music request
 keep working, the account stays alive, and the person meets the requirement at the
 moment they care about it.
 
-### D17 — Staff and roles: half-answered, and named as such
+### D17 — Staff belongs to the platform; access belongs to the Station
 
-With the Station as the root, staff access travels with the Station. That inverts
-the original ruling in the dangerous direction: instead of "roles are lost", the
-default becomes "the previous owner's employees keep signing in to a Station that
-is now somebody else's". **A move must therefore end the source's staff access
-explicitly**, and the earlier ruling that the operation prints the current roles,
-their permissions and who held them before it runs keeps its purpose.
+The same move as D2, applied to the other end: the **identity** rises to the
+platform, the **relationship** descends to the Station. Half of it is already
+true — `auth.users` has always been global — and the other half already has a
+table: `company_memberships` (`user_id`, `company_id`, `role`) has sat beside
+`organization_memberships` since `0003_identity_tenant.sql:63`.
 
-Today `roles` is *"Organization-scoped, assigned per Company"*
-(`0015_roles.sql:51`), with `organization_memberships` and `company_memberships`
-already existing as two levels (`0003_identity_tenant.sql:53-71`). What a
-Station-rooted staff model looks like — who creates a Station, whether one person
-can work at Stations of different groups, what an Organization-level user can
-still reach — **is not decided in this document.** It is the one part of the model
-still owed an answer, and §6 carries it.
+- **A user belongs to the platform** and may be staff at any number of Stations,
+  including Stations in different Organizations. Nothing about that is a leak:
+  each Station's data is its own, and the console switches context.
+- **A Station's owner-user sets that Station's rules.** Not the group's.
+- **The rules travel with the Station**, because they were never the group's to
+  begin with.
+
+**All six Organization-level permissions descend.** The whole list, measured:
+`users.manage`, `users.invite`, `roles.manage`, `members.view`, `members.block`,
+`audit.view`. Five of them keep their meaning one level down. **One loses its
+subject:** the Organization-wide listener block, which `0032` expresses as a block
+row with a null `company_id`. A block is relationship data (D6) and only exists
+per Station, so "block across the group" stops being a concept and becomes, at
+most, a screen convenience that applies the same block at each Station the
+operator administers. That is a real loss of function and is recorded as one.
+
+**`is_owner()` becomes `is_station_owner()`.** It reads `organization_memberships`
+for `role = 'owner'` today and is called **42 times across 19 migrations**. It
+becomes a read of `company_memberships`. This is the single largest mechanical
+change in the staff work, and it is bounded: a rename plus a table swap.
+
+**Role definitions must become Station-owned, and that duplicates.** Today
+`roles_name_unique` is `(organization_id, lower(name))`: the definition is the
+group's, the assignment is per Station (`0015_roles.sql:51`). A definition that is
+shared cannot travel, so it has to descend — and a group with eight radios then
+defines "Gerente" eight times. The friction is removed by **platform-level role
+templates copied at Station creation**, never by sharing one definition. Copy is
+right here for the same reason a window was right in D6, inverted: what must
+survive a change of owner cannot be a pointer at something the previous owner
+holds.
+
+**Invitations become Station-scoped, and must not reveal the platform.**
+`invitations` carries an e-mail and is Organization-scoped today
+(`0012_invitations.sql:9`). Descending it means inviting somebody who is already a
+platform user, and an autocomplete or a "user already exists" message would leak
+that they exist and hint at where they work. **A Station learns nothing about
+where else its staff work.** The invitation answers identically for an address new
+to the platform and one already on it — the `elsewhere` rule of `0033`, now on the
+staff side.
+
+**On a move, staff travels and the destination confirms.** The announcers and
+promotion staff work at the radio, not at the holding company, so wiping their
+access would stop the Station on its first day under new ownership. But the seller
+— the group owner who was also registered as owner-staff of that Station — would
+otherwise keep walking in. So the move **presents the staff list and the
+destination's owner confirms or revokes each one.** This keeps the purpose of the
+owner's ruling of 2026-08-22 (the operation prints the current rules first) and
+inverts its mechanism: it prints them so they can be kept deliberately, rather
+than recreated from nothing.
+
+**What an Organization owner is, after this.** They do not create a Station, do
+not archive one, do not reach a listener and do not open an operational screen.
+They read consolidated results and nothing else. `organization_memberships`
+survives as exactly that grant. This is much smaller than the word "owner"
+suggests today, and it is written here so that nobody restores the old reach by
+reflex.
+
+This decision also settles what D11 could only derive: the group reaches records
+**only** through being staff of a Station, never by owning the group.
+
+### D18 — A Station's lifecycle is a platform act, and a Station may have no group
+
+**Only the platform admin creates, moves and archives a Station.** Creation is
+already exactly this: `provision_organization` states that it creates the group
+and its owner and *"NO Station -- how many radios a customer has is not known at
+provisioning time"*, and `add_company`, the door each radio actually enters
+through, has been gated on `is_platform_admin()` since `0017`. The ruling
+ratifies the code.
+
+Two things follow:
+
+- **The move screen leaves "Edit Organization".** The original Block 31b brief
+  put it there, which implied the group owner performing it. Creating a Station is
+  a commercial act of PulchaTX; moving one is the same act seen from the other
+  side. It belongs in the platform console, which Block 16 already split into
+  Organizations and Stations.
+- **Archiving goes with them.** Archiving now starts the orphan clock (D10) and is
+  the most destructive act in the product — one click can anonymize thousands of
+  people. Keeping creation on the platform while leaving destruction with the
+  customer would be the wrong half.
+
+**`companies.organization_id` becomes optional.** A grouping that is only a
+grouping is an option, not a requirement, so an independent Station stops needing
+a one-member Organization built to satisfy a foreign key. This costs almost
+nothing now: under D1 the 43 mechanical tables lose the column anyway, so the
+group survives in `companies` alone. And it makes representable something that is
+not representable today — **a Station leaving a group without joining another**,
+which is what happens when a group dissolves or a radio goes independent.
 
 ---
 
@@ -547,24 +629,21 @@ authorization axis those blocks never had.
 Nothing here blocks P0 or P1 of §11, but none of it may be invented silently
 during implementation.
 
-1. **The staff and roles model** under a Station root — D17.
-2. **N for the orphan window.** 30 days recommended, matching the house's short
+1. **N for the orphan window.** 30 days recommended, matching the house's short
    clock in `sweep_retention`; not ruled.
-3. **N for silence demotion** of a telephone claim — must be measured against
+2. **N for silence demotion** of a telephone claim — must be measured against
    Brazilian carrier reassignment, not guessed.
-4. **What a "period" is** for the consolidation freeze.
-5. **Whether e-mail confirmation is mandatory at first participation.** Mandatory
+3. **What a "period" is** for the consolidation freeze.
+4. **Whether e-mail confirmation is mandatory at first participation.** Mandatory
    excludes from promotions everyone without an e-mail; refusable leaves them
    participating with no recovery, which is coherent provided the screen says so
    plainly. Prize delivery usually needs an identifiable winner, so both are
    defensible. Not a technical question.
-6. **The backfill census.** How many profiles in production match across
+5. **The backfill census.** How many profiles in production match across
    Organizations by telephone, e-mail, CPF or passport. This is the one open item
    that is measured rather than decided, and it says whether creating the platform
    row is a quiet migration or a sequence of case-by-case rulings. **Measure it
    before P2.**
-7. **D11's derived reading** — group reaches records only while it owns the
-   Station.
 
 ---
 
@@ -594,6 +673,7 @@ during implementation.
   (D12), mitigated but not removed by D14.
 - A person with no verified e-mail is unrecoverable by design (D14).
 - The platform becomes an identity index across controllers (§5).
+- The Organization-wide listener block is retired, not replaced (D17).
 
 ---
 
@@ -693,19 +773,20 @@ that comes after it.
 
 | # | Block | Why here |
 | --- | --- | --- |
-| **P0** | **The census.** Measure the cross-Organization identifier collisions in production (§6.6). No schema change. | Its answer sizes P2 and can change P2's design. Cheapest thing in the programme. |
+| **P0** | **The census.** Measure the cross-Organization identifier collisions in production (§6.5). No schema change. | Its answer sizes P2 and can change P2's design. Cheapest thing in the programme. |
 | **P1** | **Close the `0267` gate.** The promotion hashtag stops registering for a suspended Station or blocked Organization. | Independent of everything, valuable alone, and the lines are already identified by a previous review. |
 | **P2** | **The platform person.** The identifiers-only table, `members.person_id`, the backfill, resolve-or-create inside `0061_member_resolution_cores.sql`. | The foundation. Lands in one shared body, which is why the four doors cannot drift. |
 | **P3** | **Claims.** Telephone and e-mail become rows with validity and identity key; `enable_identity_key_check`; `user_changed_number` and follow/split. | Needs P2's person to attach to. |
 | **P4** | **Authorization.** The (person, Station) row, implicit at the origin, created by interaction; MENU removed. | Needs P2. Visibility still reads the old axis at this point. |
 | **P5** | **Visibility inversion.** RLS reads the authorization; person data becomes a window; relationship data stays. | The dangerous one. Needs P4 in place and proven. |
-| **P6** | **Tenancy inversion.** Station becomes the root; the 43 tables drop `organization_id`; the 92 composite keys go. | Deliberately after visibility, so only one axis is in motion at a time. |
-| **P7** | **Lifecycle.** Suspension and archiving semantics, the archive cascade, the orphan clock, `anonymize_member` firing. | Needs P4's authorizations to end. |
-| **P8** | **The person's surfaces.** Per-Station revocation in the Widget, the PulchaTX platform page, PulchaTX's own WABA. | Needs P4 and P7. |
-| **P9** | **Recovery and the clocks.** E-mail verification at first participation, two-channel recovery, the platform refresh clock. | Needs P3 and P8. |
-| **P10** | **Recognition with data.** Cross-Station authorization requests, the bounded attribute set, the indistinguishable refusal, both-sided audit. | The only block that opens a new disclosure. Last on purpose. |
-| **P11** | **Frozen consolidation.** Period close, composition recorded, dashboards reading snapshots for closed periods. | Independent of the identity work; can run in parallel from P6 onward. |
-| **P12** | **Staff and the move.** Whatever §6.1 decides, plus the move itself: one column, plus ending the source's access. | The original Block 31b, reduced to this. |
+| **P6** | **Staff and ownership.** `is_owner` becomes `is_station_owner` across 42 call sites; `company_memberships` becomes the grant; roles descend with platform templates; invitations go Station-scoped and blind; the six permissions descend; the Organization-wide block is retired. | Must precede P7: after the tenancy inversion there is no `organization_id` left to pass to `is_owner`. |
+| **P7** | **Tenancy inversion.** Station becomes the root; the 43 tables drop `organization_id`; the 92 composite keys go; `companies.organization_id` becomes optional. | Deliberately after visibility and ownership, so only one axis is in motion at a time. |
+| **P8** | **Lifecycle.** Suspension and archiving semantics, the archive cascade, the orphan clock, `anonymize_member` firing, archiving moved behind the platform admin. | Needs P4's authorizations to end. |
+| **P9** | **The person's surfaces.** Per-Station revocation in the Widget, the PulchaTX platform page, PulchaTX's own WABA. | Needs P4 and P8. |
+| **P10** | **Recovery and the clocks.** E-mail verification at first participation, two-channel recovery, the platform refresh clock. | Needs P3 and P9. |
+| **P11** | **Recognition with data.** Cross-Station authorization requests, the bounded attribute set, the indistinguishable refusal, both-sided audit. | The only block that opens a new disclosure. Last on purpose. |
+| **P12** | **Frozen consolidation.** Period close, composition recorded, dashboards reading snapshots for closed periods. | Independent of the identity work; can run in parallel from P7 onward. |
+| **P13** | **The move.** One column, the staff list presented for confirmation, and the screen living in the platform console. | The original Block 31b, reduced to this. Needs P6 and P7. |
 
 **P0 and P1 can start immediately.** Nothing else should start before §6's open
 items are answered, because P2 onward encode them.
