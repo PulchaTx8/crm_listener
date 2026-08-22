@@ -201,20 +201,19 @@ git commit -m "test(p1): the suspended Station that still registers listeners, p
 
 ```bash
 { printf -- '-- supabase/migrations/0271_suspended_station_gate.sql\n\n'; \
-  sed -n '317,936p' supabase/migrations/0267_whatsapp_fast_entry.sql; } \
-  > supabase/migrations/0271_suspended_station_gate.sql
+  sed -n '317,937p' supabase/migrations/0267_whatsapp_fast_entry.sql; } > supabase/migrations/0271_suspended_station_gate.sql
 ```
 
-That range is `create or replace function public.ingest_whatsapp_event` through
-its `$$;`, the two grant lines, and the opening of the `comment on function`.
-Finish the file by copying the rest of that comment statement through its
-terminating `;` — it is one long single-quoted string and must arrive whole.
+That range is exactly three statements: `create or replace function
+public.ingest_whatsapp_event` through its `$$;` (317-931), the two grant lines
+(933-934), and the whole `comment on function` (936-937) — whose body is one
+enormous single-quoted string living on line 937 alone.
 
-Verify the copy is complete and balanced before editing it:
+Verify the copy arrived whole before editing it:
 
 ```bash
-grep -c "^\$\$;" supabase/migrations/0271_suspended_station_gate.sql   # expect 1
-tail -c 200 supabase/migrations/0271_suspended_station_gate.sql        # must end with ';
+grep -c '^[$][$];' supabase/migrations/0271_suspended_station_gate.sql  # expect 1
+tail -c 60 supabase/migrations/0271_suspended_station_gate.sql          # ends: minutes later.';
 ```
 
 - [ ] **Step 2: Insert the gate**
@@ -315,10 +314,7 @@ generation reverts fixes and every test still passes, because the tests that
 would catch it were written for behaviour the older body also had.
 
 ```bash
-sed -n '317,931p' supabase/migrations/0267_whatsapp_fast_entry.sql > /tmp/p1-old.sql
-sed -n '/^create or replace function public.ingest_whatsapp_event/,/^\$\$;/p' \
-  supabase/migrations/0271_suspended_station_gate.sql > /tmp/p1-new.sql
-diff /tmp/p1-old.sql /tmp/p1-new.sql
+diff   <(sed -n '317,931p' supabase/migrations/0267_whatsapp_fast_entry.sql)   <(sed -n '/^create or replace function public.ingest_whatsapp_event/,/^[$][$];/p'         supabase/migrations/0271_suspended_station_gate.sql)
 ```
 
 Expected: exactly one hunk, the inserted gate. Any other difference is
