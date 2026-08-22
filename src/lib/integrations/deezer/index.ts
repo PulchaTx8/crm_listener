@@ -53,6 +53,8 @@ const FIXTURES = [
     durationSeconds: 191,
     isrc: 'BRPGD9800678',
     previewUrl: 'https://cdnt-preview.dzcdn.net/api/1/1/fixture-one.mp3',
+    // Block 31a: the fixtures are ordinary recordings, not covers.
+    version: null,
   },
   {
     id: 921569,
@@ -64,6 +66,7 @@ const FIXTURES = [
     durationSeconds: 205,
     isrc: 'BRPGD9800679',
     previewUrl: 'https://cdnt-preview.dzcdn.net/api/1/1/fixture-two.mp3',
+    version: null,
   },
 ];
 

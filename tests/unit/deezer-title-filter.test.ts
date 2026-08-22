@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isExcludedTitle } from '@/lib/integrations/deezer/transport';
+import { isExcludedRecording, isExcludedTitle } from '@/lib/integrations/deezer/transport';
 import { createDeezerClient } from '@/lib/integrations/deezer/client';
 import { FakeDeezerTransport } from '@/lib/integrations/deezer/fake';
 import type { DeezerTrack } from '@/lib/integrations/deezer/transport';
@@ -61,6 +61,43 @@ describe('isExcludedTitle', () => {
   });
 });
 
+/**
+ * Block 31a, D9. The owner reported covers still being offered, and the reason
+ * was not a gap in the term list above: Deezer carries a `version` field beside
+ * `title`, and `toTrack` never read it. A recording whose title is clean and
+ * whose version says "(Cover Version)" arrived looking like the original.
+ */
+describe('isExcludedRecording', () => {
+  it('excludes a cover Deezer marks only in the version field', () => {
+    expect(isExcludedRecording('Evidências', '(Cover Version)')).toBe(true);
+    // Unbracketed too: in that field the phrase stands alone.
+    expect(isExcludedRecording('Evidências', 'Cover Version')).toBe(true);
+    expect(isExcludedRecording('Evidências', 'COVER VERSION')).toBe(true);
+  });
+
+  it('keeps a version that is not a cover', () => {
+    expect(isExcludedRecording('Evidências', '(Live)')).toBe(false);
+    expect(isExcludedRecording('Evidências', 'Radio Edit')).toBe(false);
+    expect(isExcludedRecording('Evidências', 'Ao Vivo')).toBe(false);
+    expect(isExcludedRecording('Evidências', null)).toBe(false);
+  });
+
+  it('still judges the title, which is where Block 24 found them', () => {
+    expect(isExcludedRecording('Evidências (Karaoke)', null)).toBe(true);
+    expect(isExcludedRecording('Yesterday (Cover)', null)).toBe(true);
+    expect(isExcludedRecording('Yesterday (Cover)', '(Live)')).toBe(true);
+  });
+
+  it('does not take the recordings whose names merely contain the letters', () => {
+    // `cover version` is two words, so it cannot sit inside any of these — which
+    // is why it is the one term that needs no bracket.
+    for (const title of ['Discovery', 'Undercover', 'Cover Me', 'Coverage']) {
+      expect(isExcludedRecording(title, null), title).toBe(false);
+      expect(isExcludedRecording(title, 'Radio Edit'), title).toBe(false);
+    }
+  });
+});
+
 function track(id: number, title: string): DeezerTrack {
   return {
     id,
@@ -72,6 +109,7 @@ function track(id: number, title: string): DeezerTrack {
     durationSeconds: 200,
     isrc: null,
     previewUrl: null,
+    version: null,
   };
 }
 
