@@ -1393,6 +1393,7 @@ export type Database = {
           neighbourhood: string | null
           organization_id: string
           passport: string | null
+          person_id: string
           phone: string | null
           phone_normalized: string | null
           postal_code: string | null
@@ -1424,6 +1425,7 @@ export type Database = {
           neighbourhood?: string | null
           organization_id: string
           passport?: string | null
+          person_id: string
           phone?: string | null
           phone_normalized?: string | null
           postal_code?: string | null
@@ -1455,6 +1457,7 @@ export type Database = {
           neighbourhood?: string | null
           organization_id?: string
           passport?: string | null
+          person_id?: string
           phone?: string | null
           phone_normalized?: string | null
           postal_code?: string | null
@@ -1467,6 +1470,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "members_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
             referencedColumns: ["id"]
           },
         ]
@@ -2294,6 +2304,24 @@ export type Database = {
           },
         ]
       }
+      people: {
+        Row: {
+          created_at: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       permissions: {
         Row: {
           code: string
@@ -2326,6 +2354,44 @@ export type Database = {
           scope?: Database["public"]["Enums"]["permission_scope"]
         }
         Relationships: []
+      }
+      person_identifiers: {
+        Row: {
+          created_at: string
+          id: string
+          kind: Database["public"]["Enums"]["person_identifier_kind"]
+          person_id: string
+          valid_from: string
+          valid_to: string | null
+          value: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: Database["public"]["Enums"]["person_identifier_kind"]
+          person_id: string
+          valid_from?: string
+          valid_to?: string | null
+          value: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["person_identifier_kind"]
+          person_id?: string
+          valid_from?: string
+          valid_to?: string | null
+          value?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "person_identifiers_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       platform_admins: {
         Row: {
@@ -4558,6 +4624,7 @@ export type Database = {
         }[]
       }
       backfill_member_field_confirmations: { Args: never; Returns: undefined }
+      backfill_member_person_ids: { Args: never; Returns: number }
       block_member: {
         Args: {
           p_company_id?: string
@@ -6022,6 +6089,15 @@ export type Database = {
           to_date: string
         }[]
       }
+      resolve_or_attach_person: {
+        Args: {
+          p_cpf_hash?: string
+          p_email?: string
+          p_passport?: string
+          p_phone?: string
+        }
+        Returns: string
+      }
       resolve_or_create_album: {
         Args: {
           p_company_id: string
@@ -6634,6 +6710,7 @@ export type Database = {
       participation_source: "MANUAL" | "IMPORT" | "WHATSAPP" | "WEB"
       participation_status: "VALID" | "DUPLICATE" | "TOO_SOON" | "OVER_LIMIT"
       permission_scope: "organization" | "company"
+      person_identifier_kind: "PHONE" | "EMAIL" | "CPF" | "PASSPORT"
       promotion_question_kind: "QUIZ" | "MULTIPLE_CHOICE" | "ESSAY"
       promotion_requested_field:
         | "full_name"
@@ -6912,6 +6989,7 @@ export const Constants = {
       participation_source: ["MANUAL", "IMPORT", "WHATSAPP", "WEB"],
       participation_status: ["VALID", "DUPLICATE", "TOO_SOON", "OVER_LIMIT"],
       permission_scope: ["organization", "company"],
+      person_identifier_kind: ["PHONE", "EMAIL", "CPF", "PASSPORT"],
       promotion_question_kind: ["QUIZ", "MULTIPLE_CHOICE", "ESSAY"],
       promotion_requested_field: [
         "full_name",
