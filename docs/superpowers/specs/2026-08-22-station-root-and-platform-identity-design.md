@@ -687,28 +687,51 @@ authorization axis those blocks never had.
 
 ---
 
-## 6. What is still open
+## 6. What was left open, and how it closed
 
-Nothing here blocks P0 or P1 of §11, but none of it may be invented silently
-during implementation.
+The owner closed the architecture on 2026-08-22 and asked for the remainder to be
+settled. **The four below are Claude's calls, not the owner's**, taken because the
+design already implies them; each says what would change if it were taken the
+other way. The fifth is not a decision at all.
 
-1. **N for the orphan window.** 30 days recommended, matching the house's short
-   clock in `sweep_retention`; not ruled.
-2. **N for silence demotion** of a telephone claim — must be measured against
-   Brazilian carrier reassignment, not guessed.
-3. **What a "period" is** for the consolidation freeze.
-4. **Whether e-mail confirmation is mandatory at first participation.** Mandatory
-   excludes from promotions everyone without an e-mail; refusable leaves them
-   participating with no recovery, which is coherent provided the screen says so
-   plainly. Prize delivery usually needs an identifiable winner, so both are
-   defensible. Not a technical question.
-5. **The backfill census.** How many profiles in production match across
-   Organizations by telephone, e-mail, CPF or passport. This is the one open item
-   that is measured rather than decided, and it says whether creating the platform
-   row is a quiet migration or a sequence of case-by-case rulings. **Measure it
-   before P2.**
+**6.1 — The orphan window is 30 days.** It matches the short clock
+`sweep_retention` already runs on three operational tables, so no new cadence
+enters the product, and the sweep that would run the anonymization is nightly
+already. Longer keeps personal data with no purpose alive for no reason; shorter
+makes an accidental archive unrecoverable in a working week.
 
----
+**6.2 — Silence demotes a telephone claim at 12 months.** The claim must outlive
+the carrier's quarantine before reassignment, and the failure modes are not
+symmetric: too short demotes a real person who simply did not enter a promotion
+all year, and they recover through D14; too long leaves a reassigned number
+resolving to its previous holder, which is the thing D12 exists to prevent — but
+the identity-key check catches that case independently, so this clock is the
+backstop and not the guard. Twelve months errs toward not annoying the living,
+with the guard elsewhere. **Confirm against the current ANATEL rule before P3
+ships**; if the quarantine is longer than twelve months, this number is wrong.
+
+**6.3 — A period is a calendar month, resolved at each Station's own clock.** The
+dashboards already work this way: `0118` returns each Station's own resolved from
+and to dates beside its timezone, precisely because a preset resolves differently
+in distant zones on a month boundary, and it names the Stations that disagree
+rather than claiming a uniformity it cannot provide. The freeze inherits that
+behaviour rather than inventing a second calendar beside it.
+
+**6.4 — E-mail confirmation is requested at first participation, not required.**
+The person enters the promotion either way, is told plainly that without a
+confirmed address their account cannot be recovered, and is asked again by D16's
+clock for as long as they keep participating. Requiring it would exclude from
+promotions everybody without an e-mail — an audience loss the Station pays for —
+and it would be **redundant**, because D15 already puts the hard requirement where
+the risk actually is: **no prize is delivered without it.** The gate belongs at
+the prize, and it is already there. Taken the other way, the entry itself would
+refuse, and the fast path — which records and answers with no screen at all —
+would have to grow a screen.
+
+**6.5 — The backfill census is not a decision, it is P0.** How many profiles in
+production match across Organizations by telephone, e-mail, CPF or passport. Its
+answer sizes P2 and can change P2's design, and it is the cheapest thing in the
+programme. It must be measured before P2 is planned.
 
 ## 7. What the owner has to do, and when
 
@@ -851,7 +874,7 @@ that comes after it.
 | **P12** | **Frozen consolidation.** Period close, composition recorded, dashboards reading snapshots for closed periods. | Independent of the identity work; can run in parallel from P7 onward. |
 | **P13** | **The move.** One column, the staff list presented for confirmation, and the screen living in the platform console. | The original Block 31b, reduced to this. Needs P5 and P7. |
 
-**P0, P1 and P5 can start immediately** — P5 depends on none of the identity
-work, only on `company_memberships`, which `0007`, `0013`, `0017` and `0018`
-already populate. Nothing else should start before §6's open items are answered,
-because P2 onward encode them.
+**P0, P1 and P5 can start immediately.** P5 depends on none of the identity work,
+only on `company_memberships`, which `0007`, `0013`, `0017` and `0018` already
+populate. P2 waits on P0''s census and on nothing else; every other §6 item is
+settled.
