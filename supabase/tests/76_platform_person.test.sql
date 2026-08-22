@@ -1,5 +1,5 @@
 begin;
-select plan(15);
+select plan(20);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures. This file owns them: it needs TWO Organizations with a Station each,
@@ -146,6 +146,68 @@ select is(
      join pg_temp.p2_created c on c.id = m.id),
   true,
   'and a listener registered through the shared core comes out with a person attached');
+
+
+-- ---------------------------------------------------------------------------
+-- THE BACKFILL, and D20. Profiles that already existed get a person each, and
+-- two profiles of one human in DIFFERENT Organizations get the SAME one, which
+-- is the entire reason people exists.
+--
+-- INSERTED DIRECTLY rather than through apply_member_creation, because that door
+-- now attaches a person of its own (0273) and would leave nothing for the
+-- backfill to do. A row written straight into members with a null person_id is
+-- exactly what every profile in production looked like before 0274 ran.
+-- ---------------------------------------------------------------------------
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000076b1', '00000000-0000-0000-0000-0000000076f1',
+   'Mesma Pessoa', '5511900000040'),
+  ('00000000-0000-0000-0000-0000000076b2', '00000000-0000-0000-0000-0000000076f2',
+   'Mesma Pessoa', '5511900000040'),
+  -- No identifier of any kind. 0272 permits a person with no claim deliberately:
+  -- one nobody can recognise later is still a person, and without that 0275
+  -- could never take the NOT NULL.
+  ('00000000-0000-0000-0000-0000000076b3', '00000000-0000-0000-0000-0000000076f1',
+   'Sem Identificador', null);
+
+update public.members set person_id = null
+ where id in ('00000000-0000-0000-0000-0000000076b1',
+              '00000000-0000-0000-0000-0000000076b2',
+              '00000000-0000-0000-0000-0000000076b3');
+
+-- 0274'S OWN FUNCTION, called rather than copied. The migration ran before this
+-- file did, and on a fresh database it had nothing to do -- so a test that
+-- re-typed its UPDATE would pass whether or not 0274 existed, which is exactly
+-- what an earlier draft of this section did. Extracting the backfill into a
+-- named function is what makes it reachable from here, and re-runnable if a
+-- production run stops half way.
+select is(
+  public.backfill_member_person_ids(),
+  3,
+  'the backfill reports the three profiles it attached');
+
+select is(
+  (select count(*)::int from public.members
+    where deleted_at is null and person_id is null),
+  0,
+  'the backfill leaves no live profile without a person');
+
+select is(
+  (select count(distinct person_id)::int from public.members
+    where phone_normalized = '5511900000040' and deleted_at is null),
+  1,
+  'and one telephone held in two Organizations resolves to ONE person');
+
+select is(
+  (select count(*)::int from public.members
+    where phone_normalized = '5511900000040' and deleted_at is null),
+  2,
+  'while both profiles survive: D20 keeps both, and nothing was retired');
+
+select isnt(
+  (select person_id from public.members
+    where id = '00000000-0000-0000-0000-0000000076b3'),
+  null,
+  'and a profile with no identifier at all still gets a person, with no claim');
 
 select * from finish();
 rollback;
